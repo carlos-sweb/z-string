@@ -87,7 +87,7 @@ Add to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .zstring = .{
-            .url = "https://github.com/YOUR_USERNAME/z-string/archive/refs/tags/v0.1.0.tar.gz",
+            .url = "https://github.com/carlos-sweb/z-string/archive/refs/tags/v0.1.0.tar.gz",
             .hash = "1220...", // Use zig fetch to get hash
         },
     },
@@ -108,7 +108,7 @@ exe.root_module.addImport("zstring", zstring.module("zstring"));
 ### Manual Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/z-string.git
+git clone https://github.com/carlos-sweb/z-string.git
 cd z-string
 zig build test
 ```
@@ -269,7 +269,7 @@ Contributions are welcome! This project is currently paused pending libzregexp a
 ### Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/z-string.git
+git clone https://github.com/carlos-sweb/z-string.git
 cd z-string
 zig build test
 ```
