@@ -75,6 +75,17 @@ A Zig library that implements the ECMAScript 262 String API with full spec compl
 
 ## 📦 Installation
 
+### Language Support
+
+z-string can be used from multiple languages:
+- **Zig**: Native Zig API (recommended)
+- **C**: C-compatible API with manual memory management
+- **C++**: Modern C++17 API with RAII and STL integration
+
+📖 **See language-specific guides:**
+- **[C.md](C.md)** - Complete guide for C usage
+- **[CPP.md](CPP.md)** - Complete guide for C++ usage
+
 ### Using Zig Package Manager (0.15.0+)
 
 **Note:** z-string depends on [zregexp](https://github.com/carlos-sweb/zregexp) for regex functionality. You'll need to set it up as a local dependency or wait for published releases.
@@ -157,6 +168,8 @@ if (char) |c| {
 
 ## 🚀 Quick Start
 
+### Zig API
+
 ```zig
 const std = @import("std");
 const zstring = @import("zstring");
@@ -189,6 +202,71 @@ pub fn main() !void {
     std.debug.print("Parts: {s}, {s}\n", .{parts[0], parts[1]}); // "Hello", "World!"
 }
 ```
+
+### C API
+
+```c
+#include <stdio.h>
+#include "zstring.h"
+
+int main(void) {
+    ZString* str = NULL;
+
+    // Create a string
+    if (zstring_init("Hello, World!", &str) != ZSTRING_OK) {
+        return 1;
+    }
+
+    // Convert to uppercase
+    char* upper = NULL;
+    if (zstring_to_upper_case(str, &upper) == ZSTRING_OK) {
+        printf("Upper: %s\n", upper);  // "HELLO, WORLD!"
+        zstring_str_free(upper);
+    }
+
+    // Clean up
+    zstring_free(str);
+    return 0;
+}
+```
+
+**Build:** `gcc your_program.c -I./include -L. -lzstring -o your_program`
+
+📖 **See [C.md](C.md) for complete C API documentation.**
+
+### C++ API
+
+```cpp
+#include <iostream>
+#include "zstring.hpp"
+
+int main() {
+    try {
+        // Create a string (RAII - automatic cleanup)
+        zstring::String str("Hello, World!");
+
+        // Convert to uppercase
+        auto upper = str.toUpperCase();
+        std::cout << "Upper: " << upper << std::endl;  // "HELLO, WORLD!"
+
+        // Split into words
+        auto words = str.split(" ");
+        for (const auto& word : words) {
+            std::cout << "Word: " << word << std::endl;
+        }
+
+    } catch (const zstring::Exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
+```
+
+**Build:** `g++ -std=c++17 your_program.cpp -I./include -L. -lzstring -o your_program`
+
+📖 **See [CPP.md](CPP.md) for complete C++ API documentation.**
 
 ## 📚 Documentation
 
@@ -264,7 +342,8 @@ zig build bench
 ```
 z-string/
 ├── src/
-│   ├── zstring.zig           # Public API entry point
+│   ├── zstring.zig           # Public Zig API entry point
+│   ├── c_api.zig            # C API implementation
 │   ├── core/
 │   │   ├── utf16.zig         # UTF-8 ↔ UTF-16 conversion
 │   │   └── string.zig        # ZString struct
@@ -279,10 +358,15 @@ z-string/
 │       ├── regex.zig         # search, match, matchAll, replace, replaceAll
 │       ├── unicode_normalize.zig  # NFC/NFD/NFKC/NFKD normalization
 │       └── utility.zig       # toString, valueOf, localeCompare, normalize
+├── include/
+│   ├── zstring.h            # C header file
+│   └── zstring.hpp          # C++ header file (RAII wrapper)
 ├── tests/
 │   ├── spec/                 # ECMAScript spec compliance tests
 │   └── benchmarks/           # Performance benchmarks
-└── examples/                 # Usage examples
+├── examples/                 # Usage examples
+├── C.md                     # Complete C API documentation
+└── CPP.md                   # Complete C++ API documentation
 ```
 
 ## 🔮 Roadmap
