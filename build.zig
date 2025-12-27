@@ -4,9 +4,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Create the zstring module
+    // Get zregexp dependency
+    const zregexp = b.dependency("zregexp", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zregexp_module = zregexp.module("zregexp");
+
+    // Create the zstring module with zregexp dependency
     const zstring_module = b.addModule("zstring", .{
         .root_source_file = b.path("src/zstring.zig"),
+        .imports = &.{
+            .{ .name = "zregexp", .module = zregexp_module },
+        },
     });
 
     // Unit tests
@@ -15,6 +25,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/zstring.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zregexp", .module = zregexp_module },
+            },
         }),
     });
 
@@ -140,4 +153,21 @@ pub fn build(b: *std.Build) void {
     const run_split_example = b.addRunArtifact(example_split);
     const split_example_step = b.step("example-split", "Run split method example");
     split_example_step.dependOn(&run_split_example.step);
+
+    // Error handling example
+    const example_error_handling = b.addExecutable(.{
+        .name = "error_handling",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/error_handling.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zstring", .module = zstring_module },
+            },
+        }),
+    });
+
+    const run_error_handling_example = b.addRunArtifact(example_error_handling);
+    const error_handling_example_step = b.step("example-errors", "Run error handling example");
+    error_handling_example_step.dependOn(&run_error_handling_example.step);
 }

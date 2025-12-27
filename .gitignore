@@ -27,3 +27,5 @@ docs/build/
 # Temporary files
 tmp/
 temp/
+GITHUB_SETUP.md
+deps/

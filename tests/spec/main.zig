@@ -10,6 +10,8 @@ test {
     _ = @import("padding_trimming_spec.zig");
     _ = @import("split_spec.zig");
     _ = @import("case_utility_spec.zig");
+    _ = @import("regex_spec.zig");
+    _ = @import("ecmascript_compliance.zig");
 }
 
 test "spec - String.length property" {

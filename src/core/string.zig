@@ -8,6 +8,7 @@ const trimming = @import("../methods/trimming.zig");
 const split_methods = @import("../methods/split.zig");
 const case = @import("../methods/case.zig");
 const utility = @import("../methods/utility.zig");
+const regex_methods = @import("../methods/regex.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -474,6 +475,78 @@ pub const ZString = struct {
     /// The returned string must be freed by the caller.
     pub fn normalize(self: ZString, allocator: Allocator, form: ?[]const u8) ![]u8 {
         return utility.normalize(allocator, self.data, form);
+    }
+
+    // ========================================================================
+    // Regex Methods
+    // ========================================================================
+
+    /// String.prototype.search(regexp)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.search
+    ///
+    /// Executes a search for a match between a regular expression and this string,
+    /// returning the index of the first match, or -1 if not found.
+    ///
+    /// Note: Requires zregexp dependency.
+    pub fn searchRegex(self: ZString, allocator: Allocator, pattern: []const u8) !isize {
+        return regex_methods.search(allocator, self.data, pattern);
+    }
+
+    /// String.prototype.match(regexp)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.match
+    ///
+    /// Retrieves the matches when matching a string against a regular expression.
+    /// Returns an array of matches, or null if no match is found.
+    ///
+    /// The returned MatchArray (if not null) must be freed by calling deinit().
+    ///
+    /// Note: Requires zregexp dependency.
+    pub fn matchRegex(self: ZString, allocator: Allocator, pattern: []const u8) !?regex_methods.MatchArray {
+        return regex_methods.match(allocator, self.data, pattern);
+    }
+
+    /// String.prototype.matchAll(regexp)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.matchall
+    ///
+    /// Returns an iterator of all results matching a string against a regular expression,
+    /// including capturing groups.
+    ///
+    /// The returned array and each MatchArray must be freed using freeMatchAllResult().
+    ///
+    /// Note: Requires zregexp dependency.
+    pub fn matchAllRegex(self: ZString, allocator: Allocator, pattern: []const u8) ![]regex_methods.MatchArray {
+        return regex_methods.matchAll(allocator, self.data, pattern);
+    }
+
+    /// Helper to free the result of matchAll()
+    pub fn freeMatchAllResult(allocator: Allocator, matches: []regex_methods.MatchArray) void {
+        regex_methods.freeMatchAll(allocator, matches);
+    }
+
+    /// String.prototype.replace(searchValue, replaceValue)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replace
+    ///
+    /// Returns a new string with the first match of a pattern replaced by a replacement.
+    /// The pattern can be a string or a RegExp.
+    ///
+    /// The returned string must be freed by the caller.
+    ///
+    /// Note: Requires zregexp dependency for regex patterns.
+    pub fn replaceRegex(self: ZString, allocator: Allocator, pattern: []const u8, replacement: []const u8) ![]const u8 {
+        return regex_methods.replace(allocator, self.data, pattern, replacement);
+    }
+
+    /// String.prototype.replaceAll(searchValue, replaceValue)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replaceall
+    ///
+    /// Returns a new string with all matches of a pattern replaced by a replacement.
+    /// The pattern can be a string or a RegExp.
+    ///
+    /// The returned string must be freed by the caller.
+    ///
+    /// Note: Requires zregexp dependency for regex patterns.
+    pub fn replaceAllRegex(self: ZString, allocator: Allocator, pattern: []const u8, replacement: []const u8) ![]const u8 {
+        return regex_methods.replaceAll(allocator, self.data, pattern, replacement);
     }
 };
 

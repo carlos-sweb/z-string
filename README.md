@@ -4,7 +4,7 @@
 
 [![Zig Version](https://img.shields.io/badge/zig-0.15.2-orange.svg)](https://ziglang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-paused-yellow.svg)](#-project-status)
+[![Status](https://img.shields.io/badge/status-active-green.svg)](#-project-status)
 
 A Zig library that implements the ECMAScript 262 String API with full spec compliance. Designed to be the foundation for JavaScript/ECMAScript runtime engines written in Zig.
 
@@ -17,7 +17,7 @@ A Zig library that implements the ECMAScript 262 String API with full spec compl
 
 ## ✨ Features
 
-### ✅ Implemented (27/33 methods - 81.8%)
+### ✅ Implemented (32/33 methods - 97.0%)
 
 #### Character Access (4 methods)
 - `charAt(index)` - Get character at index
@@ -66,20 +66,41 @@ A Zig library that implements the ECMAScript 262 String API with full spec compl
 
 \*\* Placeholder implementation (full Unicode normalization requires UCD)
 
-### ⏳ Pending (5 methods - require regex engine)
-
-These methods require **libzregexp** (Zig regex engine, in development):
+#### Regex Methods (5 methods) ✅
 - `search(regexp)` - Search with regex
 - `match(regexp)` - Match with regex
 - `matchAll(regexp)` - Match all with regex
 - `replace(searchValue, replaceValue)` - Replace with regex support
 - `replaceAll(searchValue, replaceValue)` - Replace all with regex support
 
+### ⏳ Remaining (1 method)
+
+- `normalize(form)` - Full Unicode normalization (requires UCD integration)
+
 ## 📦 Installation
 
 ### Using Zig Package Manager (0.15.0+)
 
-Add to your `build.zig.zon`:
+**Note:** z-string depends on [zregexp](https://github.com/carlos-sweb/zregexp) for regex functionality. You'll need to set it up as a local dependency or wait for published releases.
+
+#### Quick Setup (Local Development)
+
+```bash
+# Clone z-string
+git clone https://github.com/carlos-sweb/z-string.git
+cd z-string
+
+# Clone zregexp dependency
+mkdir -p deps
+git clone https://github.com/carlos-sweb/zregexp.git deps/zregexp
+
+# Build and test
+zig build test
+```
+
+#### Future: Package Manager Installation
+
+Once published, you'll be able to add to your `build.zig.zon`:
 
 ```zig
 .{
@@ -87,7 +108,7 @@ Add to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .zstring = .{
-            .url = "https://github.com/carlos-sweb/z-string/archive/refs/tags/v0.1.0.tar.gz",
+            .url = "https://github.com/carlos-sweb/z-string/archive/refs/tags/v0.2.0.tar.gz",
             .hash = "1220...", // Use zig fetch to get hash
         },
     },
@@ -112,6 +133,31 @@ git clone https://github.com/carlos-sweb/z-string.git
 cd z-string
 zig build test
 ```
+
+## ⚠️ Error Handling
+
+z-string follows Zig's error handling philosophy. All operations that can fail return error unions:
+
+```zig
+// ✅ Proper error handling
+const upper = try str.toUpperCase(allocator);
+defer allocator.free(upper);
+
+// ✅ Handle specific errors
+const result = str.toUpperCase(allocator) catch |err| {
+    std.log.err("Failed: {}", .{err});
+    return err;
+};
+
+// ✅ Check optional returns
+const char = try str.at(allocator, 0);
+if (char) |c| {
+    defer allocator.free(c);
+    // Use c...
+}
+```
+
+**📖 See [ERROR_HANDLING.md](ERROR_HANDLING.md) for comprehensive error handling guide.**
 
 ## 🚀 Quick Start
 
@@ -197,6 +243,7 @@ zig build example-search       # Search methods
 zig build example-transform    # Transform methods
 zig build example-padding-trimming
 zig build example-split
+zig build example-errors       # Error handling (recommended!)
 ```
 
 ## 🧪 Testing
@@ -241,7 +288,7 @@ z-string/
 
 ## 🔮 Roadmap
 
-### Phase 1: Core Methods ✅ (Current - 96.4% complete)
+### Phase 1: Core Methods ✅ (Complete - 96.4%)
 - [x] Character access methods
 - [x] Search methods (literal)
 - [x] Transform methods
@@ -250,12 +297,12 @@ z-string/
 - [x] Case conversion
 - [x] Utility methods
 
-### Phase 2: Regex Integration ⏸️ (Paused - pending libzregexp analysis)
-- [ ] Analyze libzregexp requirements
-- [ ] Determine optimal dependency strategy
-- [ ] Implement search() with regex
-- [ ] Implement match() and matchAll()
-- [ ] Implement replace() and replaceAll() with regex
+### Phase 2: Regex Integration ✅ (Complete - 100%)
+- [x] Integrate zregexp as dependency
+- [x] Implement search() with regex
+- [x] Implement match() and matchAll()
+- [x] Implement replace() and replaceAll() with regex
+- [x] Comprehensive test coverage for regex methods
 
 ### Phase 3: Advanced Features 🔮 (Future)
 - [ ] Full locale support (ICU integration)
@@ -264,7 +311,7 @@ z-string/
 
 ## 🤝 Contributing
 
-Contributions are welcome! This project is currently paused pending libzregexp analysis.
+Contributions are welcome! This project is actively maintained.
 
 ### Development Setup
 
@@ -292,24 +339,24 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📊 Project Status
 
-**Current Version:** 0.1.0 (Development)
+**Current Version:** 0.2.0 (Development)
 
 **Compatibility:**
-- ✅ 27/28 non-regex methods implemented (96.4%)
-- ✅ 27/33 total methods (81.8%)
-- ⏳ 5 regex methods pending libzregexp
+- ✅ 32/33 methods implemented (97.0%)
+- ✅ 27/28 non-regex methods (96.4%)
+- ✅ 5/5 regex methods (100%)
+- ⏳ 1 method requires full Unicode normalization (UCD integration)
 
-**Production Ready:** Not yet - active development phase
+**Production Ready:** Near complete - most ECMAScript String API features available
 
-⏸️ **Project Status: PAUSED**
+✅ **Project Status: ACTIVE**
 
-This project is temporarily paused pending analysis of **libzregexp** requirements. Before proceeding with regex method implementation, we need to:
+All regex methods have been successfully integrated using **zregexp** as a dependency! The project now provides near-complete ECMAScript 262 String API compatibility with 97% of methods implemented.
 
-1. Analyze what string manipulation features libzregexp requires
-2. Determine optimal dependency strategy to avoid circular dependencies
-3. Decide on architecture: separate z-string-core vs monolithic approach
-
-The decision to pause is intentional - implementing the wrong architecture now would require costly refactoring later. Once libzregexp requirements are clear, development will resume with a solid foundation.
+**Dependency Architecture:**
+- z-string depends on zregexp (one-way dependency)
+- No circular dependencies
+- Clean separation of concerns
 
 ## 🙏 Acknowledgments
 
