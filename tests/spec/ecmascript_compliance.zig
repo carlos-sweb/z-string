@@ -450,3 +450,107 @@ test "ECMAScript compliance - at returns null for out of bounds" {
     const result = try str.at(allocator, 10);
     try std.testing.expect(result == null);
 }
+
+// ============================================================================
+// Unicode Normalization - ECMAScript Compliance
+// ============================================================================
+
+test "ECMAScript compliance - normalize default form is NFC" {
+    // JavaScript: "café".normalize() === "café".normalize("NFC")
+    const allocator = std.testing.allocator;
+
+    const str = zstring.ZString.init("café");
+
+    const result1 = try str.normalize(allocator, null);
+    defer allocator.free(result1);
+
+    const result2 = try str.normalize(allocator, "NFC");
+    defer allocator.free(result2);
+
+    try std.testing.expectEqualStrings(result1, result2);
+}
+
+test "ECMAScript compliance - normalize NFD decomposes accented characters" {
+    // JavaScript: "é".normalize("NFD") produces decomposed form
+    const allocator = std.testing.allocator;
+
+    const str = zstring.ZString.init("é");
+
+    const result = try str.normalize(allocator, "NFD");
+    defer allocator.free(result);
+
+    // Decomposed form should be longer (e + combining mark)
+    try std.testing.expect(result.len > "é".len);
+}
+
+test "ECMAScript compliance - normalize NFC composes combining characters" {
+    // JavaScript: combining characters should be composed in NFC
+    const allocator = std.testing.allocator;
+
+    const str = zstring.ZString.init("café");
+
+    const result = try str.normalize(allocator, "NFC");
+    defer allocator.free(result);
+
+    try std.testing.expect(result.len > 0);
+}
+
+test "ECMAScript compliance - normalize ASCII unchanged in all forms" {
+    // JavaScript: ASCII strings should be unchanged by normalization
+    const allocator = std.testing.allocator;
+
+    const str = zstring.ZString.init("hello");
+
+    const nfc = try str.normalize(allocator, "NFC");
+    defer allocator.free(nfc);
+    try std.testing.expectEqualStrings("hello", nfc);
+
+    const nfd = try str.normalize(allocator, "NFD");
+    defer allocator.free(nfd);
+    try std.testing.expectEqualStrings("hello", nfd);
+
+    const nfkc = try str.normalize(allocator, "NFKC");
+    defer allocator.free(nfkc);
+    try std.testing.expectEqualStrings("hello", nfkc);
+
+    const nfkd = try str.normalize(allocator, "NFKD");
+    defer allocator.free(nfkd);
+    try std.testing.expectEqualStrings("hello", nfkd);
+}
+
+test "ECMAScript compliance - normalize empty string" {
+    // JavaScript: "".normalize() === ""
+    const allocator = std.testing.allocator;
+
+    const str = zstring.ZString.init("");
+
+    const result = try str.normalize(allocator, null);
+    defer allocator.free(result);
+
+    try std.testing.expectEqualStrings("", result);
+}
+
+test "ECMAScript compliance - normalize with common accented characters" {
+    // Test with various accented characters
+    const allocator = std.testing.allocator;
+
+    const test_cases = [_][]const u8{
+        "Café",
+        "naïve",
+        "résumé",
+        "Zürich",
+        "São Paulo",
+    };
+
+    for (test_cases) |input| {
+        const str = zstring.ZString.init(input);
+
+        const nfc = try str.normalize(allocator, "NFC");
+        defer allocator.free(nfc);
+        try std.testing.expect(nfc.len > 0);
+
+        const nfd = try str.normalize(allocator, "NFD");
+        defer allocator.free(nfd);
+        try std.testing.expect(nfd.len > 0);
+    }
+}

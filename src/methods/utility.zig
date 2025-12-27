@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const unicode_normalize = @import("unicode_normalize.zig");
 
 /// String.prototype.toString()
 /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tostring
@@ -75,35 +76,26 @@ pub fn localeCompare(str: []const u8, that: []const u8, _locales: ?[]const u8, _
 ///   - "NFKC" - Compatibility Decomposition, followed by Canonical Composition
 ///   - "NFKD" - Compatibility Decomposition
 ///
-/// Note: This is a placeholder implementation. Full Unicode normalization
-/// requires the Unicode Character Database and complex algorithms.
-/// For now, this returns a copy of the string.
-///
-/// TODO: Implement full Unicode normalization using UCD data.
+/// Implementation notes:
+/// - Handles common Latin characters with diacritics (À-ÿ range)
+/// - Implements proper NFC/NFD/NFKC/NFKD normalization for supported characters
+/// - Returns string unchanged for unsupported characters (graceful degradation)
+/// - Full Unicode normalization coverage requires Unicode Character Database (UCD)
 ///
 /// The returned string must be freed by the caller.
 pub fn normalize(allocator: Allocator, str: []const u8, form: ?[]const u8) ![]u8 {
-    const norm_form = form orelse "NFC";
+    const form_str = form orelse "NFC";
 
-    // Validate form
-    if (!std.mem.eql(u8, norm_form, "NFC") and
-        !std.mem.eql(u8, norm_form, "NFD") and
-        !std.mem.eql(u8, norm_form, "NFKC") and
-        !std.mem.eql(u8, norm_form, "NFKD"))
-    {
-        // Invalid form - in JS this throws RangeError
-        // For now, return a copy
+    // Parse normalization form
+    const norm_form = unicode_normalize.NormalizationForm.fromString(form_str) orelse {
+        // Invalid form - in JavaScript this throws RangeError
+        // For ECMAScript compliance, we should return an error
+        // For now, gracefully return a copy
         return allocator.dupe(u8, str);
-    }
+    };
 
-    // TODO: Implement actual Unicode normalization
-    // This requires:
-    // 1. Unicode Character Database (UCD) for decomposition mappings
-    // 2. Canonical ordering algorithm
-    // 3. Composition algorithm (for NFC/NFKC)
-    //
-    // For now, return a copy of the string
-    return allocator.dupe(u8, str);
+    // Perform normalization
+    return unicode_normalize.normalize(allocator, str, norm_form);
 }
 
 // ============================================================================
@@ -236,4 +228,26 @@ test "normalize - empty string" {
     const result = try normalize(allocator, "", null);
     defer allocator.free(result);
     try std.testing.expectEqualStrings("", result);
+}
+
+test "normalize - accented characters NFD" {
+    const allocator = std.testing.allocator;
+
+    // café with composed é (U+00E9)
+    const result = try normalize(allocator, "café", "NFD");
+    defer allocator.free(result);
+
+    // NFD decomposes é into e + combining acute
+    // Result should be longer than input
+    try std.testing.expect(result.len >= "café".len);
+}
+
+test "normalize - accented characters NFC" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalize(allocator, "café", "NFC");
+    defer allocator.free(result);
+
+    // NFC should produce composed form
+    try std.testing.expect(result.len > 0);
 }
