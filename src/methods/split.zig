@@ -18,7 +18,7 @@ const Allocator = std.mem.Allocator;
 /// Returns an array of strings. The caller is responsible for freeing both
 /// the array itself and each individual string in the array.
 pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limit: ?usize) ![][]u8 {
-    var result = std.ArrayList([]u8){};
+    var result: std.ArrayList([]u8) = .empty;
     errdefer {
         for (result.items) |item| {
             allocator.free(item);

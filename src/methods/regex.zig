@@ -82,7 +82,7 @@ pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?Match
         const matched_copy = try allocator.dupe(u8, matched_str);
 
         // Extract capture groups
-        var groups = std.ArrayList(?[]const u8){};
+        var groups: std.ArrayList(?[]const u8) = .empty;
         defer groups.deinit(allocator);
 
         // Try to get up to 16 capture groups (zregexp's limit)
@@ -139,7 +139,7 @@ pub fn matchAll(allocator: Allocator, str: []const u8, pattern: []const u8) ![]M
     }
 
     // Convert to MatchArray format
-    var matches = std.ArrayList(MatchArray){};
+    var matches: std.ArrayList(MatchArray) = .empty;
     defer matches.deinit(allocator);
 
     for (match_results.items) |m| {
@@ -148,7 +148,7 @@ pub fn matchAll(allocator: Allocator, str: []const u8, pattern: []const u8) ![]M
         const matched_copy = try allocator.dupe(u8, matched_str);
 
         // Extract capture groups
-        var groups = std.ArrayList(?[]const u8){};
+        var groups: std.ArrayList(?[]const u8) = .empty;
         defer groups.deinit(allocator);
 
         var i: usize = 1;
@@ -213,7 +213,7 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
             defer m.deinit();
 
             // Build the result string: before + replacement + after
-            var result = std.ArrayList(u8){};
+            var result: std.ArrayList(u8) = .empty;
             defer result.deinit(allocator);
 
             // Add everything before the match
@@ -229,7 +229,7 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
 
     // Fallback to literal string replacement
     if (std.mem.indexOf(u8, str, pattern)) |pos| {
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayList(u8) = .empty;
         defer result.deinit(allocator);
 
         try result.appendSlice(allocator,str[0..pos]);
@@ -279,7 +279,7 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
         }
 
         // Build result by replacing all matches
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayList(u8) = .empty;
         defer result.deinit(allocator);
 
         var last_end: usize = 0;
@@ -297,7 +297,7 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
     }
 
     // Fallback to literal string replacement
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     var pos: usize = 0;

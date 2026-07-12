@@ -111,7 +111,7 @@ fn findComposition(base: u21, combining: u21) ?u21 {
 
 /// Decompose a string (NFD/NFKD)
 fn decompose(allocator: Allocator, str: []const u8) ![]u8 {
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     var view = std.unicode.Utf8View.init(str) catch {
@@ -143,7 +143,7 @@ fn decompose(allocator: Allocator, str: []const u8) ![]u8 {
 
 /// Compose a string (NFC/NFKC)
 fn compose(allocator: Allocator, str: []const u8) ![]u8 {
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     var view = std.unicode.Utf8View.init(str) catch {

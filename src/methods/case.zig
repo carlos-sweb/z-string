@@ -16,7 +16,7 @@ const Allocator = std.mem.Allocator;
 pub fn toLowerCase(allocator: Allocator, str: []const u8) ![]u8 {
     // Allocate buffer for result (worst case: same size)
     // Note: Some Unicode transformations can change byte length
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .empty;
     errdefer result.deinit(allocator);
 
     var i: usize = 0;
@@ -74,7 +74,7 @@ pub fn toLowerCase(allocator: Allocator, str: []const u8) ![]u8 {
 ///
 /// The returned string must be freed by the caller.
 pub fn toUpperCase(allocator: Allocator, str: []const u8) ![]u8 {
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .empty;
     errdefer result.deinit(allocator);
 
     var i: usize = 0;
