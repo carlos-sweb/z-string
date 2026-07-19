@@ -226,7 +226,7 @@ test "spec - replaceAll: empty string" {
 test "spec - regex: email validation" {
     const allocator = std.testing.allocator;
 
-    // Simplified email pattern (zregexp may not support all character classes yet)
+    // Simplified email pattern (zregex may not support all character classes yet)
     // Just look for @ symbol as a simple test
     const pattern = "@";
 

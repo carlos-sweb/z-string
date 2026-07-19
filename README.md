@@ -81,23 +81,23 @@ z-string is a native Zig library — see [Quick Start](#-quick-start) below.
 
 ### Dependencies
 
-z-string depends on [zregexp](https://github.com/carlos-sweb/zregexp) for regex functionality. It's resolved as a local sibling path in `build.zig.zon`, matching the convention used across the z-* ecosystem (z-array, z-number, z-object, z-value):
+z-string depends on [zregex](https://github.com/carlos-sweb/z-regex) for regex functionality. It's resolved as a local sibling path in `build.zig.zon`, matching the convention used across the z-* ecosystem (z-array, z-number, z-object, z-value):
 ```zig
 .dependencies = .{
-    .zregexp = .{ .path = "../zregexp" },
+    .zregex = .{ .path = "../z-regex" },
 },
 ```
-Clone `zregexp` alongside `z-string` (as siblings, not nested inside it) before building. Once zregexp has a published, tagged commit you want to pin, swap that for a git dependency instead:
+Clone `zregex` alongside `z-string` (as siblings, not nested inside it) before building. Once zregex has a published, tagged commit you want to pin, swap that for a git dependency instead:
 ```bash
-zig fetch --save git+https://github.com/carlos-sweb/zregexp.git
+zig fetch --save git+https://github.com/carlos-sweb/z-regex.git
 ```
 
 #### Quick Setup (Local Development)
 
 ```bash
-# Clone z-string and zregexp as siblings
+# Clone z-string and zregex as siblings
 git clone https://github.com/carlos-sweb/z-string.git
-git clone https://github.com/carlos-sweb/zregexp.git
+git clone https://github.com/carlos-sweb/z-regex.git
 
 cd z-string
 zig build test
@@ -309,7 +309,7 @@ z-string/
 - [x] Unicode normalization (NFC/NFD/NFKC/NFKD)
 
 ### Phase 2: Regex Integration ✅ (Complete - 100%)
-- [x] Integrate zregexp as dependency
+- [x] Integrate zregex as dependency
 - [x] Implement search() with regex
 - [x] Implement match() and matchAll()
 - [x] Implement replace() and replaceAll() with regex
@@ -345,7 +345,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🔗 Related Projects
 
-- **libzregexp** (in development) - Zig regex engine for ECMAScript compatibility
+- **libzregex** (in development) - Zig regex engine for ECMAScript compatibility
 - **Zig Standard Library** - UTF-8/UTF-16 utilities
 
 ## 📊 Project Status
@@ -365,7 +365,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 All methods have been successfully implemented! The project now provides **complete ECMAScript 262 String API compatibility** with 100% of methods implemented, including full Unicode normalization (NFC/NFD/NFKC/NFKD) for common Latin characters.
 
 **Dependency Architecture:**
-- z-string depends on zregexp (one-way dependency)
+- z-string depends on zregex (one-way dependency)
 - No circular dependencies
 - Clean separation of concerns
 

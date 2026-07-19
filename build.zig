@@ -4,18 +4,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Get zregexp dependency
-    const zregexp = b.dependency("zregexp", .{
+    // Get zregex dependency
+    const zregex = b.dependency("zregex", .{
         .target = target,
         .optimize = optimize,
     });
-    const zregexp_module = zregexp.module("zregexp");
+    const zregex_module = zregex.module("zregex");
 
-    // Create the zstring module with zregexp dependency
+    // Create the zstring module with zregex dependency
     const zstring_module = b.addModule("zstring", .{
         .root_source_file = b.path("src/zstring.zig"),
         .imports = &.{
-            .{ .name = "zregexp", .module = zregexp_module },
+            .{ .name = "zregex", .module = zregex_module },
         },
     });
 
@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "zregexp", .module = zregexp_module },
+                .{ .name = "zregex", .module = zregex_module },
             },
         }),
     });

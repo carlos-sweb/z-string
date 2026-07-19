@@ -487,7 +487,7 @@ pub const ZString = struct {
     /// Executes a search for a match between a regular expression and this string,
     /// returning the index of the first match, or -1 if not found.
     ///
-    /// Note: Requires zregexp dependency.
+    /// Note: Requires zregex dependency.
     pub fn searchRegex(self: ZString, allocator: Allocator, pattern: []const u8) !isize {
         return regex_methods.search(allocator, self.data, pattern);
     }
@@ -500,7 +500,7 @@ pub const ZString = struct {
     ///
     /// The returned MatchArray (if not null) must be freed by calling deinit().
     ///
-    /// Note: Requires zregexp dependency.
+    /// Note: Requires zregex dependency.
     pub fn matchRegex(self: ZString, allocator: Allocator, pattern: []const u8) !?regex_methods.MatchArray {
         return regex_methods.match(allocator, self.data, pattern);
     }
@@ -513,7 +513,7 @@ pub const ZString = struct {
     ///
     /// The returned array and each MatchArray must be freed using freeMatchAllResult().
     ///
-    /// Note: Requires zregexp dependency.
+    /// Note: Requires zregex dependency.
     pub fn matchAllRegex(self: ZString, allocator: Allocator, pattern: []const u8) ![]regex_methods.MatchArray {
         return regex_methods.matchAll(allocator, self.data, pattern);
     }
@@ -531,7 +531,7 @@ pub const ZString = struct {
     ///
     /// The returned string must be freed by the caller.
     ///
-    /// Note: Requires zregexp dependency for regex patterns.
+    /// Note: Requires zregex dependency for regex patterns.
     pub fn replaceRegex(self: ZString, allocator: Allocator, pattern: []const u8, replacement: []const u8) ![]const u8 {
         return regex_methods.replace(allocator, self.data, pattern, replacement);
     }
@@ -544,7 +544,7 @@ pub const ZString = struct {
     ///
     /// The returned string must be freed by the caller.
     ///
-    /// Note: Requires zregexp dependency for regex patterns.
+    /// Note: Requires zregex dependency for regex patterns.
     pub fn replaceAllRegex(self: ZString, allocator: Allocator, pattern: []const u8, replacement: []const u8) ![]const u8 {
         return regex_methods.replaceAll(allocator, self.data, pattern, replacement);
     }

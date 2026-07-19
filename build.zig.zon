@@ -32,8 +32,8 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
-        .zregexp = .{
-            .path = "../zregexp",
+        .zregex = .{
+            .path = "../z-regex",
         },
     },
     // Specifies the set of files and directories that are included in this package.

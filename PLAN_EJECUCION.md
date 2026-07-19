@@ -9,7 +9,7 @@
 - ✅ Manejo de strings como UTF-16 (igual que JS) aunque internamente use UTF-8
 - ✅ Comportamiento idéntico en edge cases
 - ✅ Índices y length basados en UTF-16 code units (no bytes, no code points)
-- ⏳ Integración futura con `libzregexp` para métodos regex
+- ⏳ Integración futura con `libzregex` para métodos regex
 
 **Aprovechar stdlib de Zig**:
 - Usar `std.mem` como base cuando sea posible
@@ -41,7 +41,7 @@ z-string/
 │   │   └── replace.zig      # replace, replaceAll (sin regex)
 │   ├── static/
 │   │   └── constructors.zig # fromCharCode, fromCodePoint, raw
-│   └── regex/               # Para futuro con libzregexp
+│   └── regex/               # Para futuro con libzregex
 │       └── stubs.zig        # Stubs que retornan error.NotImplemented
 └── tests/
     ├── spec/                # Tests basados en ECMAScript spec
@@ -508,7 +508,7 @@ Implementar:
 
 ### FASE 3: Regex Integration (Futura) 🟢
 
-**Objetivo**: Integrar con `libzregexp` cuando esté disponible
+**Objetivo**: Integrar con `libzregex` cuando esté disponible
 
 #### 3.1 Preparación de Stubs
 **Archivos**: `src/regex/stubs.zig`
@@ -541,10 +541,10 @@ pub fn replaceRegex(self: ZString, allocator: Allocator, pattern: anytype, repla
 ```zig
 /// match() - Pattern matching with regular expressions
 ///
-/// NOTE: This method requires the `libzregexp` engine which is not yet integrated.
+/// NOTE: This method requires the `libzregex` engine which is not yet integrated.
 /// Current status: Returns error.NotImplemented
 ///
-/// Planned support when libzregexp is available:
+/// Planned support when libzregex is available:
 /// - Full ECMAScript regex syntax
 /// - Capture groups
 /// - Named groups
@@ -557,11 +557,11 @@ pub fn replaceRegex(self: ZString, allocator: Allocator, pattern: anytype, repla
 
 **API planificada**:
 ```zig
-// Cuando libzregexp esté disponible:
-const zregexp = @import("libzregexp");
+// Cuando libzregex esté disponible:
+const zregex = @import("libzregex");
 
 pub fn match(self: ZString, allocator: Allocator, pattern: []const u8, flags: ?[]const u8) !?MatchResult {
-    const regex = try zregexp.compile(pattern, flags orelse "");
+    const regex = try zregex.compile(pattern, flags orelse "");
     return regex.match(self.data);
 }
 ```
@@ -782,7 +782,7 @@ pub fn main() !void {
 ### Milestone 6: Preparación Regex (Futuro)
 - [ ] FASE 3.1: Stubs y documentación
 - [ ] FASE 3.2: Interface diseñada
-- [ ] Integración con libzregexp (cuando disponible)
+- [ ] Integración con libzregex (cuando disponible)
 
 ---
 
@@ -888,7 +888,7 @@ pub fn indexOf(self: ZString, search: []const u8, position: ?usize) ?usize {
 - ✅ Lista para integrar en runtime
 
 ### Para Milestone 6 (Full Compliance)
-- ✅ Regex integration con libzregexp
+- ✅ Regex integration con libzregex
 - ✅ Todos los métodos ECMAScript
 - ✅ Test262 compatibility (si aplicable)
 - ✅ Production-ready

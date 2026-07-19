@@ -1,6 +1,6 @@
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
-const zregexp = @import("zregexp");
+const zregex = @import("zregex");
 
 const Allocator = std.mem.Allocator;
 
@@ -16,7 +16,7 @@ const Allocator = std.mem.Allocator;
 ///   search("Price: $100", "\\d+") -> 8
 pub fn search(allocator: Allocator, str: []const u8, pattern: []const u8) !isize {
     // Compile the regex pattern
-    var re = zregexp.Regex.compile(allocator, pattern) catch {
+    var re = zregex.Regex.compile(allocator, pattern) catch {
         // If compilation fails, return -1 (no match)
         return -1;
     };
@@ -69,7 +69,7 @@ pub const MatchArray = struct {
 ///   match("Price: $100", "\\d+") -> MatchArray with "100"
 pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?MatchArray {
     // Compile the regex pattern
-    var re = zregexp.Regex.compile(allocator, pattern) catch return null;
+    var re = zregex.Regex.compile(allocator, pattern) catch return null;
     defer re.deinit();
 
     // Find the first match
@@ -85,7 +85,7 @@ pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?Match
         var groups: std.ArrayList(?[]const u8) = .empty;
         defer groups.deinit(allocator);
 
-        // Try to get up to 16 capture groups (zregexp's limit)
+        // Try to get up to 16 capture groups (zregex's limit)
         var i: usize = 1;
         while (i < 16) : (i += 1) {
             if (m.getCapture(i, str)) |capture| {
@@ -121,7 +121,7 @@ pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?Match
 ///   matchAll("test test", "t") -> Array of 4 matches
 pub fn matchAll(allocator: Allocator, str: []const u8, pattern: []const u8) ![]MatchArray {
     // Compile the regex pattern
-    var re = zregexp.Regex.compile(allocator, pattern) catch {
+    var re = zregex.Regex.compile(allocator, pattern) catch {
         // If compilation fails, return empty array
         return try allocator.alloc(MatchArray, 0);
     };
@@ -196,7 +196,7 @@ pub fn freeMatchAll(allocator: Allocator, matches: []MatchArray) void {
 pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, replacement: []const u8) ![]const u8 {
     // Try to compile as regex first
     var is_regex = true;
-    var re = zregexp.Regex.compile(allocator, pattern) catch blk: {
+    var re = zregex.Regex.compile(allocator, pattern) catch blk: {
         is_regex = false;
         break :blk undefined;
     };
@@ -255,7 +255,7 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
 pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, replacement: []const u8) ![]const u8 {
     // Try to compile as regex first
     var is_regex = true;
-    var re = zregexp.Regex.compile(allocator, pattern) catch blk: {
+    var re = zregex.Regex.compile(allocator, pattern) catch blk: {
         is_regex = false;
         break :blk undefined;
     };

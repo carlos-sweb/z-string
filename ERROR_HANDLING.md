@@ -18,7 +18,7 @@ pub const Allocator.Error = error{
 
 ### Regex Errors
 
-Regex methods can return additional errors from the zregexp library:
+Regex methods can return additional errors from the zregex library:
 
 ```zig
 pub const RegexError = error{
