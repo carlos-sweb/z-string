@@ -73,6 +73,59 @@ pub const ZString = struct {
         };
     }
 
+    /// String.fromCharCode(...codeUnits)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.fromcharcode
+    ///
+    /// Builds a string from a sequence of UTF-16 code units, combining
+    /// surrogate pairs into their real character automatically (Zig has
+    /// no variadic parameters like JS's `...codeUnits` -- pass a slice
+    /// instead). ToUint16 coercion of raw JS numbers is the caller's
+    /// job (outside this library); `code_units` is already `u16` here.
+    ///
+    /// Narrowing: an UNPAIRED surrogate (e.g. a single 0xD800 with no
+    /// matching low surrogate right after it) returns an error instead
+    /// of silently building an ill-formed string the way real JS does --
+    /// see WELL_FORMED_STRINGS.md for why z-string's UTF-8 storage can't
+    /// represent that case at all.
+    ///
+    /// Example:
+    ///   fromCharCode(allocator, &.{ 65, 66, 67 }) -> owned ZString "ABC"
+    pub fn fromCharCode(allocator: Allocator, code_units: []const u16) !ZString {
+        const utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, code_units);
+        return fromOwned(allocator, utf8);
+    }
+
+    /// String.fromCodePoint(...codePoints)
+    /// Spec: https://tc39.es/ecma262/2025/#sec-string.fromcodepoint
+    ///
+    /// Builds a string from a sequence of full Unicode code points (not
+    /// UTF-16 code units -- each argument here is already a whole
+    /// character, encoded directly, no surrogate-pair combining needed).
+    /// Same no-variadic-parameters note as fromCharCode.
+    ///
+    /// Narrowing: real JS's RangeError only rejects code points outside
+    /// 0..0x10FFFF -- it does NOT reject a bare surrogate value passed
+    /// directly (`String.fromCodePoint(0xD800)` succeeds in real JS,
+    /// producing the same lone-surrogate string fromCharCode would).
+    /// z-string is stricter here for the same storage reason as
+    /// fromCharCode: error.Utf8CannotEncodeSurrogateHalf on a surrogate
+    /// value, error.CodepointTooLarge above 0x10FFFF.
+    ///
+    /// Example:
+    ///   fromCodePoint(allocator, &.{ 65, 0x1F600 }) -> owned ZString "A😀"
+    pub fn fromCodePoint(allocator: Allocator, code_points: []const u21) !ZString {
+        var list: std.ArrayList(u8) = .empty;
+        errdefer list.deinit(allocator);
+
+        var buf: [4]u8 = undefined;
+        for (code_points) |cp| {
+            const len = try std.unicode.utf8Encode(cp, &buf);
+            try list.appendSlice(allocator, buf[0..len]);
+        }
+
+        return fromOwned(allocator, try list.toOwnedSlice(allocator));
+    }
+
     /// Frees the memory if this is an owned string
     /// Safe to call on borrowed strings (no-op)
     pub fn deinit(self: *ZString) void {
@@ -578,6 +631,44 @@ test "ZString.initOwned - owned string" {
 
     try std.testing.expectEqual(@as(usize, 5), zstr.length());
     try std.testing.expect(zstr.isOwned());
+}
+
+test "ZString.fromCharCode - basic ASCII" {
+    const allocator = std.testing.allocator;
+    var zstr = try ZString.fromCharCode(allocator, &.{ 65, 66, 67 });
+    defer zstr.deinit();
+    try std.testing.expectEqualStrings("ABC", zstr.data);
+}
+
+test "ZString.fromCharCode - combines a surrogate pair into one character" {
+    const allocator = std.testing.allocator;
+    // Node: String.fromCharCode(0xD83D, 0xDE00) -> "😀"
+    var zstr = try ZString.fromCharCode(allocator, &.{ 0xD83D, 0xDE00 });
+    defer zstr.deinit();
+    try std.testing.expectEqualStrings("😀", zstr.data);
+}
+
+test "ZString.fromCharCode - unpaired surrogate errors instead of building an ill-formed string" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.DanglingSurrogateHalf, ZString.fromCharCode(allocator, &.{ 65, 0xD800 }));
+}
+
+test "ZString.fromCodePoint - basic ASCII and a code point above 0xFFFF" {
+    const allocator = std.testing.allocator;
+    // Node: String.fromCodePoint(65, 0x1F600) -> "A😀"
+    var zstr = try ZString.fromCodePoint(allocator, &.{ 65, 0x1F600 });
+    defer zstr.deinit();
+    try std.testing.expectEqualStrings("A😀", zstr.data);
+}
+
+test "ZString.fromCodePoint - a bare surrogate value errors (narrower than real JS)" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.Utf8CannotEncodeSurrogateHalf, ZString.fromCodePoint(allocator, &.{0xD800}));
+}
+
+test "ZString.fromCodePoint - out of range errors" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.CodepointTooLarge, ZString.fromCodePoint(allocator, &.{0x110000}));
 }
 
 test "ZString.length - UTF-16 compliance" {

@@ -72,6 +72,19 @@ front). It's a coverage count of named operations.
 
 \*\* Supports common Latin characters (À-ÿ range) with proper decomposition/composition
 
+#### Static Factories (2 methods)
+- `ZString.fromCharCode(code_units)` - Build a string from UTF-16 code units (combines surrogate pairs)
+- `ZString.fromCodePoint(code_points)` - Build a string from full Unicode code points
+
+Both live directly on `ZString` (constructors, same as `init`/`initOwned`/
+`fromOwned`), not in `methods/`. Both take a slice instead of JS's
+variadic `...args` (Zig has no variadic parameters — see
+[Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax)), and
+both error on an unpaired surrogate rather than silently building a
+string z-string's UTF-8 storage can't actually represent (see
+[WELL_FORMED_STRINGS.md](WELL_FORMED_STRINGS.md) for why) — stricter
+than real JS, which allows it.
+
 #### Regex Methods (6 methods) ✅
 - `search(pattern)` - Search with regex
 - `match(pattern)` - Match with regex
@@ -366,8 +379,9 @@ z-string/
 - [ ] Full locale support (ICU integration)
 - [ ] Extended Unicode normalization (full UCD coverage beyond Latin-1)
 - [ ] Locale-aware case mapping (Turkish İ/i, etc.)
+- [x] Static factories: `ZString.fromCharCode`, `ZString.fromCodePoint`
+- [ ] `String.raw` (needs a tagged-template-literal caller, out of scope for a pure string-ops library on its own)
 - [ ] `toWellFormed()` (the fix-up counterpart to the existing `isWellFormed()` check)
-- [ ] Static factories: `String.fromCharCode`, `String.fromCodePoint`, `String.raw`
 - [ ] `replace`/`replaceAll` treating a plain (non-regex) search string as a literal match instead of always compiling it as a pattern
 
 ## ⚠️ Known Gaps
@@ -381,9 +395,10 @@ for why "capability" and "same method name" are different questions):
   represent the lone-surrogate case these two are supposed to detect.
   Full writeup, including what a real fix requires, in
   [WELL_FORMED_STRINGS.md](WELL_FORMED_STRINGS.md).
-- **`String.fromCharCode` / `String.fromCodePoint` / `String.raw`** — no
-  static factory equivalents; building a string from code units/code
-  points has to go through Zig's `std.unicode` directly today.
+- **`String.raw`** — no equivalent; it's inherently tied to a
+  tagged-template-literal call site (the raw, unescaped source text of
+  the template), which doesn't have a meaningful counterpart in a
+  standalone string-operations library.
 - **`replace()`/`replaceAll()` literal-search correctness** — both always
   compile their search argument as a regex pattern. A search string
   containing regex metacharacters (`.`, `+`, `*`, `?`, ...) will be
@@ -429,8 +444,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 **Coverage:** every `String.prototype` operation from ECMA-262 §22.1.3 has
 a Zig-idiomatic equivalent in this library, EXCEPT the items listed under
-[Known Gaps](#-known-gaps) above (`toWellFormed()`, the static factories,
-and the replace/replaceAll literal-search caveat). "Coverage" here means
+[Known Gaps](#-known-gaps) above (`String.raw`, `toWellFormed()`, and the
+replace/replaceAll literal-search caveat). "Coverage" here means
 "a real function exists for it" — it is deliberately NOT a spec-compliance
 percentage. This library doesn't run against Test262 (ECMAScript's actual
 conformance suite) on its own; the only end-to-end conformance numbers
