@@ -320,6 +320,66 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
     return try result.toOwnedSlice(allocator);
 }
 
+/// String.prototype.split(regexp, limit) -- regex-separator sibling of
+/// split.zig's split() (Zig has no function overloading, so a regex
+/// separator can't share that name; same "takes a raw pattern, compiles
+/// it internally" convention as search/match/matchAll/replace/replaceAll
+/// above).
+/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.split
+///
+/// Splits `str` wherever `pattern` matches, discarding the matched
+/// separators. An unparseable pattern or a pattern with no matches
+/// behaves like split(str, null, limit) -- the whole string, unsplit.
+///
+/// Narrowing: a pattern that can match the empty string (e.g. "x*") is
+/// not given the exact ECMA-262 zero-width-match handling real JS uses
+/// (skip-and-advance-by-one instead of an empty split); each empty match
+/// still produces an empty piece between it and the previous split point.
+///
+/// Examples:
+///   splitRegex("a1b2c3", "[0-9]+", null) -> ["a", "b", "c"]
+///   splitRegex("one, two,three", ",\\s*", null) -> ["one", "two", "three"]
+pub fn splitRegex(allocator: Allocator, str: []const u8, pattern: []const u8, limit: ?usize) ![][]u8 {
+    var result: std.ArrayList([]u8) = .empty;
+    errdefer {
+        for (result.items) |item| allocator.free(item);
+        result.deinit(allocator);
+    }
+
+    if (limit != null and limit.? == 0) {
+        return result.toOwnedSlice(allocator);
+    }
+
+    var re = zregex.Regex.compile(allocator, pattern) catch {
+        try result.append(allocator, try allocator.dupe(u8, str));
+        return result.toOwnedSlice(allocator);
+    };
+    defer re.deinit();
+
+    var matches = re.findAll(str) catch {
+        try result.append(allocator, try allocator.dupe(u8, str));
+        return result.toOwnedSlice(allocator);
+    };
+    defer {
+        for (matches.items) |m| m.deinit();
+        matches.deinit(allocator);
+    }
+
+    var last_end: usize = 0;
+    for (matches.items) |m| {
+        if (limit) |lim| {
+            if (result.items.len >= lim) break;
+        }
+        try result.append(allocator, try allocator.dupe(u8, str[last_end..m.start]));
+        last_end = m.end;
+    }
+    if (limit == null or result.items.len < limit.?) {
+        try result.append(allocator, try allocator.dupe(u8, str[last_end..]));
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -388,4 +448,78 @@ test "replaceAll: no match" {
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings("hello world", result);
+}
+
+test "splitRegex: digits as separator" {
+    // Matches real JS: 'a1b2c3'.split(/[0-9]+/) -> ["a","b","c",""] --
+    // the string ends right after the last match, so there's a real
+    // (empty) segment between that match and the end of the string.
+    const result = try splitRegex(std.testing.allocator, "a1b2c3", "[0-9]+", null);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 4), result.len);
+    try std.testing.expectEqualStrings("a", result[0]);
+    try std.testing.expectEqualStrings("b", result[1]);
+    try std.testing.expectEqualStrings("c", result[2]);
+    try std.testing.expectEqualStrings("", result[3]);
+}
+
+test "splitRegex: comma with optional trailing spaces" {
+    const result = try splitRegex(std.testing.allocator, "one, two,three", ",\\s*", null);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqualStrings("one", result[0]);
+    try std.testing.expectEqualStrings("two", result[1]);
+    try std.testing.expectEqualStrings("three", result[2]);
+}
+
+test "splitRegex: no match returns the whole string" {
+    const result = try splitRegex(std.testing.allocator, "hello", "[0-9]+", null);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqualStrings("hello", result[0]);
+}
+
+test "splitRegex: respects limit" {
+    const result = try splitRegex(std.testing.allocator, "a1b2c3d4e", "[0-9]", 2);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), result.len);
+    try std.testing.expectEqualStrings("a", result[0]);
+    try std.testing.expectEqualStrings("b", result[1]);
+}
+
+test "splitRegex: limit zero returns an empty array" {
+    const result = try splitRegex(std.testing.allocator, "a1b2c3", "[0-9]+", 0);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), result.len);
+}
+
+test "splitRegex: invalid pattern falls back to the whole string" {
+    const result = try splitRegex(std.testing.allocator, "hello", "[", null);
+    defer {
+        for (result) |item| std.testing.allocator.free(item);
+        std.testing.allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqualStrings("hello", result[0]);
 }

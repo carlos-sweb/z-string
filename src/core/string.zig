@@ -376,6 +376,14 @@ pub const ZString = struct {
         split_methods.freeSplitResult(allocator, result);
     }
 
+    /// String.prototype.split(regexp, limit) -- regex-separator sibling
+    /// of split() (Zig has no function overloading; same naming pattern
+    /// as searchRegex/matchRegex/matchAllRegex/replaceRegex/
+    /// replaceAllRegex below). Free the result with freeSplitResult().
+    pub fn splitRegex(self: ZString, allocator: Allocator, pattern: []const u8, limit: ?usize) ![][]u8 {
+        return regex_methods.splitRegex(allocator, self.data, pattern, limit);
+    }
+
     // ========================================================================
     // Case Conversion Methods
     // ========================================================================

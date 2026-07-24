@@ -6,18 +6,24 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active-green.svg)](#-project-status)
 
-A Zig library that implements the ECMAScript 262 String API with full spec compliance. Designed to be the foundation for JavaScript/ECMAScript runtime engines written in Zig.
+A Zig library implementing the operations of ECMAScript 262's `String.prototype` — full **capability** coverage of the spec's string operations, expressed in Zig's own idioms rather than a syntactic mimicry of JavaScript's dynamic object model (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) below for what that distinction means and why it matters). Designed to be the foundation for JavaScript/ECMAScript runtime engines written in Zig.
 
 ## 🎯 Project Goals
 
-- **Spec Compliance**: Match ECMAScript 262 String API behavior exactly
+- **Spec Coverage**: Provide a Zig-idiomatic equivalent for every `String.prototype` operation ECMAScript 262 defines
 - **UTF-16 Indexing**: Use UTF-16 code units for indexing (like JavaScript)
 - **Performance**: Efficient implementation leveraging Zig's strengths
 - **Runtime Ready**: Built to be integrated into ECMAScript runtime engines
 
 ## ✨ Features
 
-### ✅ Implemented (33/33 methods - 100%)
+### ✅ Implemented
+
+Every method below is a real, independently-tested Zig function — this is
+NOT a percentage of "spec compliance" (that would mean matching ECMA-262's
+exact edge-case behavior, verified against a real conformance suite like
+Test262; see [Known Gaps](#-known-gaps) for what's honestly missing on that
+front). It's a coverage count of named operations.
 
 #### Character Access (4 methods)
 - `charAt(index)` - Get character at index
@@ -47,8 +53,8 @@ A Zig library that implements the ECMAScript 262 String API with full spec compl
 - `trimStart() / trimLeft()` - Remove whitespace from start
 - `trimEnd() / trimRight()` - Remove whitespace from end
 
-#### Split (1 method)
-- `split(separator?, limit?)` - Split string into array
+#### Split (1 method — see also `splitRegex` under Regex Methods)
+- `split(separator?, limit?)` - Split string into array by a literal separator
 
 #### Case Conversion (4 methods)
 - `toLowerCase()` - Convert to lowercase
@@ -66,12 +72,19 @@ A Zig library that implements the ECMAScript 262 String API with full spec compl
 
 \*\* Supports common Latin characters (À-ÿ range) with proper decomposition/composition
 
-#### Regex Methods (5 methods) ✅
-- `search(regexp)` - Search with regex
-- `match(regexp)` - Match with regex
-- `matchAll(regexp)` - Match all with regex
-- `replace(searchValue, replaceValue)` - Replace with regex support
-- `replaceAll(searchValue, replaceValue)` - Replace all with regex support
+#### Regex Methods (6 methods) ✅
+- `search(pattern)` - Search with regex
+- `match(pattern)` - Match with regex
+- `matchAll(pattern)` - Match all with regex
+- `replace(pattern, replaceValue)` - Replace with regex support*
+- `replaceAll(pattern, replaceValue)` - Replace all with regex support*
+- `splitRegex(pattern, limit?)` - Split by a regex separator (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) for why this isn't just another `split()` overload — Zig has no function overloading)
+
+\* `replace`/`replaceAll` always compile `pattern` as a regex, even when
+you intend a literal substring — if your search string contains regex
+metacharacters (`.`, `+`, `*`, etc.) they'll be interpreted as regex syntax
+instead of matched literally. Escape them yourself if that matters, or see
+[Known Gaps](#-known-gaps).
 
 ## 📦 Installation
 
@@ -194,16 +207,49 @@ pub fn main() !void {
     defer allocator.free(upper);
     std.debug.print("Upper: {s}\n", .{upper}); // "HELLO, WORLD!"
 
-    // Split
+    // Split (literal separator)
     const parts = try str.split(allocator, ", ", null);
     defer zstring.ZString.freeSplitResult(allocator, parts);
     std.debug.print("Parts: {s}, {s}\n", .{parts[0], parts[1]}); // "Hello", "World!"
+
+    // Split (regex separator) -- a sibling function, not an overload of
+    // split() -- see "Zig Idioms vs JavaScript Syntax" below.
+    const digits = zstring.ZString.init("a1b2c3");
+    const pieces = try digits.splitRegex(allocator, "[0-9]+", null);
+    defer zstring.ZString.freeSplitResult(allocator, pieces);
+    std.debug.print("Pieces: {s}, {s}, {s}\n", .{pieces[0], pieces[1], pieces[2]}); // "a", "b", "c"
 }
 ```
 
 ## 📚 Documentation
 
 ### Key Concepts
+
+#### Zig Idioms vs JavaScript Syntax
+
+z-string targets **functional equivalence** with `String.prototype`, not
+syntactic mimicry — some of what reads as a single, flexible JavaScript
+method is deliberately split across several Zig functions, because Zig
+doesn't support what JavaScript relies on to make that flexibility work:
+
+- **No function overloading.** `"a,b".split(",")` and `"a1b".split(/\d/)`
+  are the same JS method dispatching on the argument's runtime type.
+  Zig can't do that — there's no way to have two functions named `split`
+  distinguished only by parameter type. So a literal separator uses
+  `split()`, and a regex separator uses the sibling function
+  `splitRegex()`. Same pattern elsewhere in this library: `toUpperCase()`
+  vs `toLocaleUpperCase()`, `search()`/`match()`/`matchAll()`/`replace()`/
+  `replaceAll()` all have this `*Regex`-suffixed-or-not split where JS
+  would use one overloaded name.
+- **No dynamic `[]` indexing on custom types.** JS's `new String("abc")[0]`
+  relies on the language auto-exposing indexed properties on an object.
+  Zig has no operator overloading for that. The equivalent capability is
+  `str.at(allocator, 0)` — same result, explicit call instead of bracket
+  syntax.
+
+If you're coming from JS and expect one method name per spec operation,
+this is the one thing to unlearn: **the library grows by adding a new,
+clearly-named function, not by overloading an existing one.**
 
 #### UTF-16 Indexing
 
@@ -287,7 +333,7 @@ z-string/
 │       ├── trimming.zig      # trim, trimStart, trimEnd
 │       ├── split.zig         # split
 │       ├── case.zig          # toLowerCase, toUpperCase
-│       ├── regex.zig         # search, match, matchAll, replace, replaceAll
+│       ├── regex.zig         # search, match, matchAll, replace, replaceAll, splitRegex
 │       ├── unicode_normalize.zig  # NFC/NFD/NFKC/NFKD normalization
 │       └── utility.zig       # toString, valueOf, localeCompare, normalize
 ├── tests/
@@ -298,7 +344,7 @@ z-string/
 
 ## 🔮 Roadmap
 
-### Phase 1: Core Methods ✅ (Complete - 100%)
+### Phase 1: Core Methods ✅ (Complete)
 - [x] Character access methods
 - [x] Search methods (literal)
 - [x] Transform methods
@@ -308,17 +354,44 @@ z-string/
 - [x] Utility methods
 - [x] Unicode normalization (NFC/NFD/NFKC/NFKD)
 
-### Phase 2: Regex Integration ✅ (Complete - 100%)
+### Phase 2: Regex Integration ✅ (Complete)
 - [x] Integrate zregex as dependency
 - [x] Implement search() with regex
 - [x] Implement match() and matchAll()
 - [x] Implement replace() and replaceAll() with regex
+- [x] Implement splitRegex() (regex-separator split, sibling of split())
 - [x] Comprehensive test coverage for regex methods
 
 ### Phase 3: Advanced Features 🔮 (Future)
 - [ ] Full locale support (ICU integration)
 - [ ] Extended Unicode normalization (full UCD coverage beyond Latin-1)
 - [ ] Locale-aware case mapping (Turkish İ/i, etc.)
+- [ ] `toWellFormed()` (the fix-up counterpart to the existing `isWellFormed()` check)
+- [ ] Static factories: `String.fromCharCode`, `String.fromCodePoint`, `String.raw`
+- [ ] `replace`/`replaceAll` treating a plain (non-regex) search string as a literal match instead of always compiling it as a pattern
+
+## ⚠️ Known Gaps
+
+Honest list of ECMA-262 `String.prototype` **capabilities** with no
+equivalent in z-string yet (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax)
+for why "capability" and "same method name" are different questions):
+
+- **`toWellFormed()`** — `isWellFormed()` exists (you can ask), but there's
+  no function that returns the corrected string (lone surrogates replaced
+  with U+FFFD).
+- **`String.fromCharCode` / `String.fromCodePoint` / `String.raw`** — no
+  static factory equivalents; building a string from code units/code
+  points has to go through Zig's `std.unicode` directly today.
+- **`replace()`/`replaceAll()` literal-search correctness** — both always
+  compile their search argument as a regex pattern. A search string
+  containing regex metacharacters (`.`, `+`, `*`, `?`, ...) will be
+  interpreted as regex syntax rather than matched literally — e.g.
+  searching for the literal text `"3.14"` also matches `"3X14"` for any
+  character `X`, because `.` means "any character" once compiled.
+
+This list is a byproduct of an actual capability audit against ECMA-262
+§22.1.3, not a percentage estimate — if you find something else missing,
+open an issue and it'll get added here.
 
 ## 🤝 Contributing
 
@@ -352,17 +425,18 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 **Current Version:** 0.3.0 (Development)
 
-**Compatibility:**
-- ✅ 33/33 methods implemented (100%)
-- ✅ 28/28 non-regex methods (100%)
-- ✅ 5/5 regex methods (100%)
-- ✅ Full Unicode normalization for common Latin characters
-
-**Production Ready:** Complete - all ECMAScript String API features available
+**Coverage:** every `String.prototype` operation from ECMA-262 §22.1.3 has
+a Zig-idiomatic equivalent in this library, EXCEPT the items listed under
+[Known Gaps](#-known-gaps) above (`toWellFormed()`, the static factories,
+and the replace/replaceAll literal-search caveat). "Coverage" here means
+"a real function exists for it" — it is deliberately NOT a spec-compliance
+percentage. This library doesn't run against Test262 (ECMAScript's actual
+conformance suite) on its own; the only end-to-end conformance numbers
+that exist are measured downstream, through a full JS engine that
+consumes z-string, and reflect that engine's plumbing as much as this
+library's own correctness.
 
 ✅ **Project Status: ACTIVE**
-
-All methods have been successfully implemented! The project now provides **complete ECMAScript 262 String API compatibility** with 100% of methods implemented, including full Unicode normalization (NFC/NFD/NFKC/NFKD) for common Latin characters.
 
 **Dependency Architecture:**
 - z-string depends on zregex (one-way dependency)
