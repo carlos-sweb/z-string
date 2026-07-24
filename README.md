@@ -376,6 +376,12 @@ z-string/
 - [x] Comprehensive test coverage for regex methods
 
 ### Phase 3: Advanced Features 🔮 (Future)
+
+See [PHASE3_ANALYSIS.md](PHASE3_ANALYSIS.md) for a complexity breakdown
+of these three — they are NOT the same size (locale-aware case mapping
+is bounded and cheap; full UCD normalization and real ICU collation are
+each a project of their own).
+
 - [ ] Full locale support (ICU integration)
 - [ ] Extended Unicode normalization (full UCD coverage beyond Latin-1)
 - [ ] Locale-aware case mapping (Turkish İ/i, etc.)
