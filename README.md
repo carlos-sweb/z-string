@@ -376,9 +376,11 @@ Honest list of ECMA-262 `String.prototype` **capabilities** with no
 equivalent in z-string yet (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax)
 for why "capability" and "same method name" are different questions):
 
-- **`toWellFormed()`** — `isWellFormed()` exists (you can ask), but there's
-  no function that returns the corrected string (lone surrogates replaced
-  with U+FFFD).
+- **`toWellFormed()` / real `isWellFormed()`** — deeper than a missing
+  method; the current `[]const u8` (standard UTF-8) storage can't even
+  represent the lone-surrogate case these two are supposed to detect.
+  Full writeup, including what a real fix requires, in
+  [WELL_FORMED_STRINGS.md](WELL_FORMED_STRINGS.md).
 - **`String.fromCharCode` / `String.fromCodePoint` / `String.raw`** — no
   static factory equivalents; building a string from code units/code
   points has to go through Zig's `std.unicode` directly today.
