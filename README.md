@@ -489,7 +489,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📊 Project Status
 
-**Current Version:** 0.3.0 (Development)
+**Current Version:** 0.4.0
 
 **Coverage:** every `String.prototype` operation from ECMA-262 §22.1.3 has
 a Zig-idiomatic equivalent in this library, EXCEPT the items listed under
