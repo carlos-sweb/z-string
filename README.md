@@ -234,6 +234,49 @@ pub fn main() !void {
 }
 ```
 
+## 🧩 Composing with the z-* ecosystem
+
+z-string depends on nothing but `zregex` (and only for the methods that
+actually need real regex matching). It does NOT depend on `z-array`,
+`z-value`, or anything else in the wider `z-*` family — that's
+deliberate, not an oversight. `split()`/`splitRegex()` already return
+everything you need (`[][]u8`, a plain Zig slice) to build a richer
+container yourself, on the consumer side, with zero changes to this
+library:
+
+```zig
+const std = @import("std");
+const zstring = @import("zstring");
+const zarray = @import("zarray");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const str = zstring.ZString.init("hola, a, todos");
+    const words = try zarray.ZArray([]const u8).fromSlice(
+        allocator,
+        try str.split(allocator, ", ", null),
+    );
+    // words is now a real ZArray([]const u8) -- push/pop/map/filter/etc.
+    // all available, on top of what split() already gave you.
+}
+```
+
+**Why z-string doesn't just depend on z-array and return `ZArray`
+directly:** it would only save the one `fromSlice` copy above, at the
+cost of a real dependency edge pointed the wrong way for what's likely
+to come next. `ZArray`'s own `join()`/`toString()` want to turn their
+elements back into text -- which is exactly z-string's job. Depend
+`z-string -> z-array` today and there's a real chance of wanting
+`z-array -> z-string` (or `-> z-value`) tomorrow for that, and now
+you're negotiating a cycle instead of composing two libraries. Keeping
+the dependency arrow one-directional (or absent, as here) means either
+side can be used completely on its own -- you reach for both only when
+YOUR code wants both, and z-string never has to care that z-array
+exists.
+
 ## 📚 Documentation
 
 ### Key Concepts
