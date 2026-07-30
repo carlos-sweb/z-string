@@ -33,7 +33,8 @@
     // internet connectivity.
     .dependencies = .{
         .zregex = .{
-            .path = "../z-regex",
+            .url = "git+https://github.com/carlos-sweb/z-regex.git#85afd1f50ec10633a1039282ead586f797b55760",
+            .hash = "zregex-0.1.0-c2ExG_o4GwAo3tNZlPCBT0_PXBMz0oS9F78wSehTQpz_",
         },
     },
     // Specifies the set of files and directories that are included in this package.
