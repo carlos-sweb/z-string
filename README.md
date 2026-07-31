@@ -63,8 +63,8 @@ front). It's a coverage count of named operations.
 - `toLocaleUpperCase(locale?)` - Locale-aware uppercase*
 
 #### Utility (4 methods)
-- `toString()` - Get string value
-- `valueOf()` - Get primitive value
+- `toStringAlloc()` - Get string value
+- `valueOfAlloc()` - Get primitive value
 - `localeCompare(that, locales?, options?)` - Compare strings*
 - `normalize(form?)` - Unicode normalization (NFC/NFD/NFKC/NFKD)**
 
@@ -86,18 +86,23 @@ string z-string's UTF-8 storage can't actually represent (see
 than real JS, which allows it.
 
 #### Regex Methods (6 methods) ✅
-- `search(pattern)` - Search with regex
-- `match(pattern)` - Match with regex
-- `matchAll(pattern)` - Match all with regex
-- `replace(pattern, replaceValue)` - Replace with regex support*
-- `replaceAll(pattern, replaceValue)` - Replace all with regex support*
+- `searchRegex(pattern)` - Search with regex
+- `matchRegex(pattern)` - Match with regex
+- `matchAllRegex(pattern)` - Match all with regex
+- `replaceRegex(pattern, replaceValue)` - Replace with regex support*
+- `replaceAllRegex(pattern, replaceValue)` - Replace all with regex support*
 - `splitRegex(pattern, limit?)` - Split by a regex separator (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) for why this isn't just another `split()` overload — Zig has no function overloading)
 
-\* `replace`/`replaceAll` always compile `pattern` as a regex, even when
-you intend a literal substring — if your search string contains regex
-metacharacters (`.`, `+`, `*`, etc.) they'll be interpreted as regex syntax
-instead of matched literally. Escape them yourself if that matters, or see
-[Known Gaps](#-known-gaps).
+All six carry a `*Regex` suffix rather than reusing the plain ECMAScript
+names (`search`, `match`, `matchAll`, `replace`, `replaceAll`) — see
+[Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) for why
+z-string doesn't overload the non-regex methods for this.
+
+\* `replaceRegex`/`replaceAllRegex` always compile `pattern` as a regex,
+even when you intend a literal substring — if your search string contains
+regex metacharacters (`.`, `+`, `*`, etc.) they'll be interpreted as regex
+syntax instead of matched literally. Escape them yourself if that matters,
+or see [Known Gaps](#-known-gaps).
 
 ## 📦 Installation
 
@@ -107,26 +112,30 @@ z-string is a native Zig library — see [Quick Start](#-quick-start) below.
 
 ### Dependencies
 
-z-string depends on [zregex](https://github.com/carlos-sweb/z-regex) for regex functionality. It's resolved as a local sibling path in `build.zig.zon`, matching the convention used across the z-* ecosystem (z-array, z-number, z-object, z-value):
+z-string depends on [zregex](https://github.com/carlos-sweb/z-regex) for regex functionality, pinned as a git dependency in `build.zig.zon`:
 ```zig
 .dependencies = .{
-    .zregex = .{ .path = "../z-regex" },
+    .zregex = .{
+        .url = "git+https://github.com/carlos-sweb/z-regex.git#<commit>",
+        .hash = "zregex-...",
+    },
 },
 ```
-Clone `zregex` alongside `z-string` (as siblings, not nested inside it) before building. Once zregex has a published, tagged commit you want to pin, swap that for a git dependency instead:
+`zig build` fetches it automatically on first run (into a local `zig-pkg/`
+directory, per Zig 0.16's package layout) — no manual cloning or sibling
+checkout required. To move to a different zregex commit:
 ```bash
 zig fetch --save git+https://github.com/carlos-sweb/z-regex.git
 ```
+This rewrites the `.zregex` entry in `build.zig.zon` with the new commit's
+URL and hash.
 
 #### Quick Setup (Local Development)
 
 ```bash
-# Clone z-string and zregex as siblings
 git clone https://github.com/carlos-sweb/z-string.git
-git clone https://github.com/carlos-sweb/z-regex.git
-
 cd z-string
-zig build test
+zig build test   # fetches zregex automatically
 ```
 
 #### Future: Package Manager Installation
@@ -135,8 +144,9 @@ Once published, you'll be able to add to your `build.zig.zon`:
 
 ```zig
 .{
-    .name = "my-project",
+    .name = .my_project,          // Zig 0.16 requires an enum literal, not a string
     .version = "0.1.0",
+    .fingerprint = 0x...,          // Zig 0.16 requires this; `zig build` will generate it
     .dependencies = .{
         .zstring = .{
             .url = "https://github.com/carlos-sweb/z-string/archive/refs/tags/v0.2.0.tar.gz",
@@ -199,7 +209,7 @@ const std = @import("std");
 const zstring = @import("zstring");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -250,7 +260,7 @@ const zstring = @import("zstring");
 const zarray = @import("zarray");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -294,9 +304,10 @@ doesn't support what JavaScript relies on to make that flexibility work:
   distinguished only by parameter type. So a literal separator uses
   `split()`, and a regex separator uses the sibling function
   `splitRegex()`. Same pattern elsewhere in this library: `toUpperCase()`
-  vs `toLocaleUpperCase()`, `search()`/`match()`/`matchAll()`/`replace()`/
-  `replaceAll()` all have this `*Regex`-suffixed-or-not split where JS
-  would use one overloaded name.
+  vs `toLocaleUpperCase()`, and the regex-backed methods
+  (`searchRegex()`/`matchRegex()`/`matchAllRegex()`/`replaceRegex()`/
+  `replaceAllRegex()`) are all named with an explicit `Regex` suffix
+  rather than overloading `search`/`match`/`replace` from the spec.
 - **No dynamic `[]` indexing on custom types.** JS's `new String("abc")[0]`
   relies on the language auto-exposing indexed properties on an object.
   Zig has no operator overloading for that. The equivalent capability is
@@ -325,6 +336,25 @@ const upper = try str.toUpperCase(allocator);
 defer allocator.free(upper); // Caller owns the memory
 ```
 
+Accumulating several results before combining them (e.g. building up parts
+of a string) uses Zig 0.16's unmanaged `std.ArrayList` — initialize with
+`.empty`, and pass the allocator explicitly to `append`/`deinit` (there is
+no `.init(allocator)` shorthand anymore):
+
+```zig
+var parts: std.ArrayList([]const u8) = .empty;
+defer {
+    for (parts.items) |part| allocator.free(part);
+    parts.deinit(allocator);
+}
+
+try parts.append(allocator, try str1.toUpperCase(allocator));
+try parts.append(allocator, try str2.toUpperCase(allocator));
+```
+
+See `examples/error_handling.zig` (`safeStringBuilder`, run via
+`zig build example-errors`) for this in context.
+
 #### Borrowed vs Owned Strings
 
 ```zig
@@ -344,6 +374,7 @@ See the `examples/` directory for complete examples:
 - `transform_methods.zig` - Slice, substring, concat, repeat
 - `padding_trimming_methods.zig` - Padding and trimming
 - `split_method.zig` - String splitting
+- `error_handling.zig` - Error handling patterns (try/catch, errdefer, ArrayList-based string building)
 
 Run examples:
 ```bash
@@ -484,7 +515,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🔗 Related Projects
 
-- **libzregex** (in development) - Zig regex engine for ECMAScript compatibility
+- **[zregex](https://github.com/carlos-sweb/z-regex)** - Zig regex engine for ECMAScript compatibility; z-string's only dependency, used for all `*Regex` methods
 - **Zig Standard Library** - UTF-8/UTF-16 utilities
 
 ## 📊 Project Status

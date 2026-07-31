@@ -24,6 +24,9 @@ pub fn main() !void {
     // Example 5: Complex operations with errdefer
     try example5ComplexOperations(allocator);
 
+    // Example 6: Safe string builder with ArrayList
+    try example6SafeStringBuilder(allocator);
+
     std.debug.print("\n=== All examples completed successfully ===\n", .{});
 }
 
@@ -228,23 +231,35 @@ fn complexStringTransform(allocator: std.mem.Allocator, input: []const u8) !Tran
     };
 }
 
-// Additional helper example: Safe string builder
+/// Example 6: Safe string builder using ArrayList to accumulate parts
+fn example6SafeStringBuilder(allocator: std.mem.Allocator) !void {
+    std.debug.print("Example 6: Safe String Builder\n", .{});
+    std.debug.print("-------------------------------\n", .{});
+
+    const built = try safeStringBuilder(allocator);
+    defer allocator.free(built);
+
+    std.debug.print("Built string: '{s}'\n", .{built});
+    std.debug.print("\n", .{});
+}
+
+/// Helper: accumulates transformed parts in an ArrayList before combining them
 fn safeStringBuilder(allocator: std.mem.Allocator) ![]const u8 {
-    var parts = std.ArrayList([]const u8).init(allocator);
+    var parts: std.ArrayList([]const u8) = .empty;
     defer {
         for (parts.items) |part| {
             allocator.free(part);
         }
-        parts.deinit();
+        parts.deinit(allocator);
     }
 
     const str1 = zstring.ZString.init("Hello");
     const upper1 = try str1.toUpperCase(allocator);
-    try parts.append(upper1);
+    try parts.append(allocator, upper1);
 
     const str2 = zstring.ZString.init("World");
     const upper2 = try str2.toUpperCase(allocator);
-    try parts.append(upper2);
+    try parts.append(allocator, upper2);
 
     // Combine all parts
     const combined = zstring.ZString.init("");

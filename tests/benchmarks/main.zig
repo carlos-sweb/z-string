@@ -1,20 +1,20 @@
 const std = @import("std");
 const zstring = @import("zstring");
 
-pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
 
-    try stdout.print("z-string Benchmarks\n", .{});
-    try stdout.print("===================\n\n", .{});
+    std.debug.print("z-string Benchmarks\n", .{});
+    std.debug.print("===================\n\n", .{});
 
     // Benchmark: lengthUtf16
-    try benchmarkLengthUtf16(stdout);
+    benchmarkLengthUtf16(io);
 
     // Benchmark: utf16IndexToByte
-    try benchmarkUtf16IndexToByte(stdout);
+    benchmarkUtf16IndexToByte(io);
 }
 
-fn benchmarkLengthUtf16(writer: anytype) !void {
+fn benchmarkLengthUtf16(io: std.Io) void {
     const iterations: usize = 1_000_000;
 
     const test_strings = [_][]const u8{
@@ -25,45 +25,45 @@ fn benchmarkLengthUtf16(writer: anytype) !void {
         "混合content with emojis😀and中文",
     };
 
-    try writer.print("Benchmark: lengthUtf16\n", .{});
-    try writer.print("-----------------------\n", .{});
+    std.debug.print("Benchmark: lengthUtf16\n", .{});
+    std.debug.print("-----------------------\n", .{});
 
     for (test_strings) |str| {
-        var timer = try std.time.Timer.start();
+        const start = std.Io.Timestamp.now(io, .awake);
 
         var i: usize = 0;
         while (i < iterations) : (i += 1) {
             _ = zstring.utf16.lengthUtf16(str);
         }
 
-        const elapsed_ns = timer.read();
-        const ns_per_op = elapsed_ns / iterations;
+        const elapsed_ns = std.Io.Timestamp.now(io, .awake).nanoseconds - start.nanoseconds;
+        const ns_per_op = @divTrunc(elapsed_ns, iterations);
 
-        try writer.print("  '{s}' ({} bytes): {} ns/op\n", .{ str, str.len, ns_per_op });
+        std.debug.print("  '{s}' ({} bytes): {} ns/op\n", .{ str, str.len, ns_per_op });
     }
 
-    try writer.print("\n", .{});
+    std.debug.print("\n", .{});
 }
 
-fn benchmarkUtf16IndexToByte(writer: anytype) !void {
+fn benchmarkUtf16IndexToByte(io: std.Io) void {
     const iterations: usize = 1_000_000;
     const str = "hello😀world";
 
-    try writer.print("Benchmark: utf16IndexToByte\n", .{});
-    try writer.print("----------------------------\n", .{});
+    std.debug.print("Benchmark: utf16IndexToByte\n", .{});
+    std.debug.print("----------------------------\n", .{});
 
-    var timer = try std.time.Timer.start();
+    const start = std.Io.Timestamp.now(io, .awake);
 
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         _ = zstring.utf16.utf16IndexToByte(str, 5) catch unreachable;
     }
 
-    const elapsed_ns = timer.read();
-    const ns_per_op = elapsed_ns / iterations;
+    const elapsed_ns = std.Io.Timestamp.now(io, .awake).nanoseconds - start.nanoseconds;
+    const ns_per_op = @divTrunc(elapsed_ns, iterations);
 
-    try writer.print("  String: '{s}'\n", .{str});
-    try writer.print("  Index: 5\n", .{});
-    try writer.print("  Time: {} ns/op\n", .{ns_per_op});
-    try writer.print("\n", .{});
+    std.debug.print("  String: '{s}'\n", .{str});
+    std.debug.print("  Index: 5\n", .{});
+    std.debug.print("  Time: {} ns/op\n", .{ns_per_op});
+    std.debug.print("\n", .{});
 }

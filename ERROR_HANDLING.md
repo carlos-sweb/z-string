@@ -230,7 +230,7 @@ pub fn processUserInput(allocator: std.mem.Allocator, input: []const u8) !void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -286,7 +286,7 @@ pub fn complexOperation(allocator: Allocator, input: []const u8) !ComplexResult 
 test "handle out of memory gracefully" {
     var failing_allocator = std.testing.FailingAllocator.init(
         std.testing.allocator,
-        0, // Fail immediately
+        .{ .fail_index = 0 }, // Fail immediately
     );
     const allocator = failing_allocator.allocator();
 
