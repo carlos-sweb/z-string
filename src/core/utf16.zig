@@ -123,7 +123,15 @@ pub fn utf16IndexToBytePos(str: []const u8, utf16_index: usize) Utf16Error!Utf16
         };
 
         if (byte_index + cp_len > str.len) {
-            // Incomplete sequence
+            // Incomplete sequence at the end of the string. lengthUtf16
+            // counts this trailing partial sequence as one unit too (see
+            // its own "Incomplete sequence at end" branch), so this walk
+            // must agree: without counting it here, an index equal to the
+            // string's own reported UTF-16 length (the common "end of
+            // string" case, e.g. slice()'s default `end`) would incorrectly
+            // report out-of-bounds instead of resolving to str.len.
+            utf16_count += 1;
+            byte_index = str.len;
             break;
         }
 
@@ -321,6 +329,19 @@ test "utf16IndexToByte - Mixed content" {
     try std.testing.expectEqual(@as(usize, 1), try utf16IndexToByte(str, 1)); // emoji high surrogate
     try std.testing.expectEqual(@as(usize, 1), try utf16IndexToByte(str, 2)); // emoji low surrogate
     try std.testing.expectEqual(@as(usize, 5), try utf16IndexToByte(str, 3)); // 'b'
+}
+
+test "utf16IndexToByte - agrees with lengthUtf16 on a truncated trailing sequence" {
+    // 'a' followed by a 2-byte lead (0xC3) with no continuation byte.
+    // lengthUtf16 counts the incomplete tail as its own unit (2 total), so
+    // the index equal to that count ("end of string") must resolve to
+    // str.len here too, not report out of bounds.
+    const str = "a\xC3";
+    try std.testing.expectEqual(@as(usize, 2), lengthUtf16(str));
+    try std.testing.expectEqual(@as(usize, 0), try utf16IndexToByte(str, 0));
+    try std.testing.expectEqual(@as(usize, 1), try utf16IndexToByte(str, 1));
+    try std.testing.expectEqual(@as(usize, str.len), try utf16IndexToByte(str, 2));
+    try std.testing.expectError(error.IndexOutOfBounds, utf16IndexToByte(str, 3));
 }
 
 test "byteIndexToUtf16" {

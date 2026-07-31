@@ -263,6 +263,29 @@ test "slice - emoji (UTF-16 indices)" {
     try std.testing.expectEqualStrings("😀", result3);
 }
 
+test "slice - truncated trailing UTF-8 sequence, end defaults to the whole string" {
+    const allocator = std.testing.allocator;
+
+    // 'a' followed by a 2-byte lead (0xC3) with no continuation byte.
+    // `end == null` resolves to lengthUtf16(str), which counts the
+    // incomplete tail as its own unit -- that index must be reachable,
+    // not treated as out of bounds (see utf16IndexToByte's own test for
+    // the same case at the primitive level).
+    const str = "a\xC3";
+    const result = try slice(allocator, str, 0, null);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings(str, result);
+}
+
+test "substring - truncated trailing UTF-8 sequence, end defaults to the whole string" {
+    const allocator = std.testing.allocator;
+
+    const str = "a\xC3";
+    const result = try substring(allocator, str, 0, null);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings(str, result);
+}
+
 test "substring - basic functionality" {
     const allocator = std.testing.allocator;
 
