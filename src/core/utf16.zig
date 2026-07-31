@@ -73,6 +73,17 @@ pub fn byteIndexToUtf16(str: []const u8, byte_index: usize) Utf16Error!usize {
         };
 
         if (i + cp_len > str.len) {
+            // Incomplete sequence: not enough bytes remain in the whole
+            // string to complete it. If byte_index lands exactly at the
+            // end of the string, this trailing run is a single UTF-16
+            // unit (matching lengthUtf16/utf16IndexToBytePos), so count
+            // it -- otherwise byteIndexToUtf16(str, str.len) would
+            // disagree with lengthUtf16(str) by one. If byte_index
+            // instead lands *inside* this run, there is no clean unit
+            // boundary there, so leave utf16_count at the run's start.
+            if (byte_index >= str.len) {
+                utf16_count += 1;
+            }
             break;
         }
 
@@ -349,6 +360,28 @@ test "byteIndexToUtf16" {
     try std.testing.expectEqual(@as(usize, 0), try byteIndexToUtf16(str, 0)); // Before 'a'
     try std.testing.expectEqual(@as(usize, 1), try byteIndexToUtf16(str, 1)); // Before emoji
     try std.testing.expectEqual(@as(usize, 3), try byteIndexToUtf16(str, 5)); // Before 'b'
+}
+
+test "byteIndexToUtf16 - agrees with lengthUtf16 at the end of a truncated trailing sequence" {
+    // "aaa" + a 3-byte lead (0xE0) with only one of its two continuation
+    // bytes present ('b' isn't a valid continuation byte either way):
+    // lengthUtf16 counts the whole incomplete tail as a single unit, so
+    // byteIndexToUtf16(str, str.len) must return that same count (4), not
+    // stop one short the way utf16IndexToByte's own truncated-tail fix
+    // already had to guard against.
+    const str = "aaa\xE0b";
+    try std.testing.expectEqual(@as(usize, 4), lengthUtf16(str));
+    try std.testing.expectEqual(@as(usize, 4), try byteIndexToUtf16(str, str.len));
+    try std.testing.expectEqual(@as(usize, str.len), try utf16IndexToByte(str, 4));
+}
+
+test "byteIndexToUtf16 - a byte offset landing inside a truncated tail resolves to the unit's start" {
+    // Same string, but asking about byte 4 (the 'b', mid-way through the
+    // incomplete unit) instead of str.len: there's no clean UTF-16
+    // boundary there, so this should resolve to the tail unit's own
+    // index (3), not be pulled forward to 4 like the str.len case above.
+    const str = "aaa\xE0b";
+    try std.testing.expectEqual(@as(usize, 3), try byteIndexToUtf16(str, 4));
 }
 
 test "utf16IndexFromEndToByte - ASCII, matches utf16IndexToByte from the forward count" {

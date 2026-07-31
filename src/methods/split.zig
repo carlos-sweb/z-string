@@ -61,8 +61,24 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
                 if (result.items.len >= lim) break;
             }
 
-            const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch break;
-            if (i + cp_len > str.len) break;
+            const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch {
+                // Invalid lead byte: matches lengthUtf16's fallback of
+                // treating it as its own single-byte unit and continuing,
+                // instead of dropping the rest of the string.
+                const char = try allocator.dupe(u8, str[i .. i + 1]);
+                try result.append(allocator, char);
+                i += 1;
+                continue;
+            };
+
+            if (i + cp_len > str.len) {
+                // Incomplete sequence at the end: lengthUtf16 counts the
+                // whole trailing run as one unit, so emit it as a single
+                // final part instead of silently dropping it.
+                const char = try allocator.dupe(u8, str[i..str.len]);
+                try result.append(allocator, char);
+                break;
+            }
 
             const char = try allocator.dupe(u8, str[i .. i + cp_len]);
             try result.append(allocator, char);
@@ -284,4 +300,37 @@ test "split - Emoji with empty separator" {
     try std.testing.expectEqualStrings("a", result[0]);
     try std.testing.expectEqualStrings("😀", result[1]);
     try std.testing.expectEqualStrings("b", result[2]);
+}
+
+test "split - empty separator with an invalid lead byte mid-string doesn't drop the rest" {
+    const allocator = std.testing.allocator;
+
+    // Previously, an invalid lead byte (0xFF is never valid in UTF-8)
+    // anywhere in the string caused the whole loop to `break`, silently
+    // dropping everything after it. It should instead become its own
+    // single-byte part and splitting should continue, matching
+    // lengthUtf16's per-byte fallback for invalid lead bytes.
+    const str = "ab\xFFcd";
+    const result = try split(allocator, str, "", null);
+    defer freeSplitResult(allocator, result);
+    try std.testing.expectEqual(@as(usize, 5), result.len);
+    try std.testing.expectEqualStrings("a", result[0]);
+    try std.testing.expectEqualStrings("b", result[1]);
+    try std.testing.expectEqualStrings("\xFF", result[2]);
+    try std.testing.expectEqualStrings("c", result[3]);
+    try std.testing.expectEqualStrings("d", result[4]);
+}
+
+test "split - empty separator with a truncated trailing sequence emits it as one part" {
+    const allocator = std.testing.allocator;
+
+    // 'a' followed by a 2-byte lead (0xC3) with no continuation byte.
+    // lengthUtf16 counts the incomplete tail as its own single unit, so
+    // split("") should emit it as one final part instead of dropping it.
+    const str = "a\xC3";
+    const result = try split(allocator, str, "", null);
+    defer freeSplitResult(allocator, result);
+    try std.testing.expectEqual(@as(usize, 2), result.len);
+    try std.testing.expectEqualStrings("a", result[0]);
+    try std.testing.expectEqualStrings("\xC3", result[1]);
 }
