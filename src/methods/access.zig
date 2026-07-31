@@ -20,15 +20,11 @@ pub fn charAt(allocator: Allocator, str: []const u8, index: isize) ![]u8 {
     }
     const idx: usize = @intCast(index);
 
-    // Get the length in UTF-16 code units
-    const len = utf16.lengthUtf16(str);
-
-    // Out of bounds check
-    if (idx >= len) {
-        return allocator.alloc(u8, 0); // Empty string
-    }
-
-    // Convert UTF-16 index to byte index
+    // Convert UTF-16 index to byte index. `utf16IndexToByte` already scans
+    // forward and reports out-of-bounds on its own (it errors once it runs
+    // out of string before reaching `idx`), so there's no need for a
+    // separate `lengthUtf16` pass first just to bounds-check — that would
+    // scan the *whole* string even when `idx` is small (e.g. 0).
     const byte_idx = utf16.utf16IndexToByte(str, idx) catch {
         return allocator.alloc(u8, 0);
     };
@@ -67,34 +63,19 @@ pub fn charAt(allocator: Allocator, str: []const u8, index: isize) ![]u8 {
 ///   at("hello", -5) -> "h"
 ///   at("hello", 10) -> null
 pub fn at(allocator: Allocator, str: []const u8, index: isize) !?[]u8 {
-    const len = utf16.lengthUtf16(str);
-
-    // Calculate relative index
-    var relative_index: isize = index;
-
-    // Normalize the index
-    var k: usize = undefined;
-    if (relative_index >= 0) {
-        k = @intCast(relative_index);
-    } else {
-        // Negative index: count from end
-        const len_signed: isize = @intCast(len);
-        relative_index = len_signed + index;
-        if (relative_index < 0) {
-            return null; // Out of bounds
-        }
-        k = @intCast(relative_index);
-    }
-
-    // Out of bounds check
-    if (k >= len) {
-        return null;
-    }
-
-    // Convert UTF-16 index to byte index
-    const byte_idx = utf16.utf16IndexToByte(str, k) catch {
-        return null;
-    };
+    // Positive/zero index: same reasoning as charAt — utf16IndexToByte
+    // already scans forward and reports out-of-bounds itself, no separate
+    // length pass needed first.
+    //
+    // Negative index: rather than compute `lengthUtf16(str) + index` (a
+    // full forward scan just to normalize the index) and then a second
+    // forward scan to reach it, walk backward from the end of the string
+    // instead. `utf16IndexFromEndToByte` costs O(|index|), not O(str.len) —
+    // a real difference for e.g. `at(-1)` on a long string.
+    const byte_idx = if (index >= 0)
+        utf16.utf16IndexToByte(str, @intCast(index)) catch return null
+    else
+        utf16.utf16IndexFromEndToByte(str, @intCast(-index)) catch return null;
 
     if (byte_idx >= str.len) {
         return null;
@@ -137,15 +118,8 @@ pub fn charCodeAt(str: []const u8, index: isize) ?u16 {
     }
     const idx: usize = @intCast(index);
 
-    // Get the length in UTF-16 code units
-    const len = utf16.lengthUtf16(str);
-
-    // Out of bounds check
-    if (idx >= len) {
-        return null;
-    }
-
-    // Get the UTF-16 code unit at this index
+    // codeUnitAt already reports out-of-bounds itself (via utf16IndexToByte
+    // underneath), so no separate lengthUtf16 pass is needed first.
     return utf16.codeUnitAt(str, idx) catch null;
 }
 
@@ -170,15 +144,8 @@ pub fn codePointAt(str: []const u8, index: isize) ?u21 {
     }
     const idx: usize = @intCast(index);
 
-    // Get the length in UTF-16 code units
-    const len = utf16.lengthUtf16(str);
-
-    // Out of bounds check
-    if (idx >= len) {
-        return null;
-    }
-
-    // Convert UTF-16 index to byte index
+    // utf16IndexToByte already reports out-of-bounds itself, no separate
+    // lengthUtf16 pass needed first.
     const byte_idx = utf16.utf16IndexToByte(str, idx) catch {
         return null;
     };
