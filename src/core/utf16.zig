@@ -8,6 +8,126 @@ pub const Utf16Error = error{
     InvalidCodePoint,
 };
 
+/// z-string-surrogate-charat.md: a JS string is a sequence of UTF-16
+/// code units, not Unicode scalar values -- an unpaired surrogate
+/// (0xD800-0xDFFF alone, without its other half) is invalid as real
+/// UTF-8 (surrogates aren't valid Unicode scalar values), but IS a
+/// legal JS string value (`"😀".charAt(1)`, `"\uD800"`,
+/// `String.fromCharCode(0xD800)` all produce/consume one). This
+/// module represents a lone surrogate using WTF-8 (Wobbly
+/// Transformation Format-8, the same encoding V8/SpiderMonkey use
+/// internally for exactly this): the identical 3-byte bit layout
+/// ordinary UTF-8 already uses for any codepoint in 0x0800-0xFFFF,
+/// which `std.unicode`'s own encoder/decoder reject as invalid
+/// specifically because U+D800-U+DFFF aren't valid standalone
+/// scalar values. Every forward/backward UTF-8 walk in this library
+/// must recognize this exact byte shape as ONE UTF-16 unit (3 bytes),
+/// not fall through to the generic "invalid byte" fallback (which
+/// would miscount it as 3 separate units).
+/// Encodes a lone UTF-16 surrogate (0xD800-0xDFFF) as a 3-byte WTF-8
+/// sequence into `buf`. Caller guarantees `surrogate` is in range.
+pub fn encodeSurrogateWtf8(buf: *[3]u8, surrogate: u16) void {
+    buf[0] = 0xE0 | @as(u8, @intCast(surrogate >> 12));
+    buf[1] = 0x80 | @as(u8, @intCast((surrogate >> 6) & 0x3F));
+    buf[2] = 0x80 | @as(u8, @intCast(surrogate & 0x3F));
+}
+
+/// If `bytes` (exactly 3 bytes) is this library's WTF-8 encoding of a
+/// lone surrogate, returns its value; null for any other 3-byte
+/// sequence (valid 3-byte UTF-8 or genuinely invalid bytes -- callers
+/// already know `std.unicode.utf8Decode` rejected it before reaching
+/// here, since a valid non-surrogate codepoint would have decoded
+/// successfully).
+pub fn decodeSurrogateWtf8(bytes: []const u8) ?u16 {
+    if (bytes.len != 3) return null;
+    if (bytes[0] & 0xF0 != 0xE0) return null;
+    if (bytes[1] & 0xC0 != 0x80 or bytes[2] & 0xC0 != 0x80) return null;
+    const value: u21 = (@as(u21, bytes[0] & 0x0F) << 12) | (@as(u21, bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+    if (value < 0xD800 or value > 0xDFFF) return null;
+    return @intCast(value);
+}
+
+/// Joins `left ++ right`, canonicalizing the boundary: if `left` ends
+/// with a WTF-8-encoded HIGH surrogate and `right` begins with a
+/// WTF-8-encoded LOW surrogate (see `encodeSurrogateWtf8`), the two
+/// are merged into the single real 4-byte UTF-8 sequence for the
+/// combined astral codepoint. Real JS strings are just UTF-16 code
+/// unit sequences -- there's no such thing as "this character came
+/// from concatenating two halves" being observable
+/// (`String.fromCharCode(0xD83D) + String.fromCharCode(0xDE00) ===
+/// "😀"` is true in real JS/Node, confirmed). This engine's
+/// byte-based storage needs this explicit canonicalization at every
+/// concat site so the SAME logical string always has ONE byte
+/// representation -- otherwise byte-level equality/hashing/property
+/// keys would silently disagree depending on how a string was built
+/// (z-string-surrogate-charat.md).
+pub fn concatUtf8(allocator: std.mem.Allocator, left: []const u8, right: []const u8) ![]u8 {
+    if (mergeSurrogateBoundary(left, right)) |merged| {
+        const out = try allocator.alloc(u8, (left.len - 3) + 4 + (right.len - 3));
+        @memcpy(out[0 .. left.len - 3], left[0 .. left.len - 3]);
+        @memcpy(out[left.len - 3 ..][0..4], &merged);
+        @memcpy(out[left.len - 3 + 4 ..], right[3..]);
+        return out;
+    }
+    return std.mem.concat(allocator, u8, &.{ left, right });
+}
+
+/// If `left` ends with a WTF-8-encoded HIGH surrogate and `right`
+/// begins with a WTF-8-encoded LOW surrogate, returns the 4-byte real
+/// UTF-8 encoding of the combined astral codepoint (which replaces
+/// those 6 bytes -- see `concatUtf8`'s own doc comment for why every
+/// multi-piece string-building site needs this same check at each
+/// new boundary, not just simple two-piece concatenation).
+pub fn mergeSurrogateBoundary(left: []const u8, right: []const u8) ?[4]u8 {
+    if (left.len < 3 or right.len < 3) return null;
+    const high = decodeSurrogateWtf8(left[left.len - 3 ..]) orelse return null;
+    if (high < 0xD800 or high > 0xDBFF) return null;
+    const low = decodeSurrogateWtf8(right[0..3]) orelse return null;
+    if (low < 0xDC00 or low > 0xDFFF) return null;
+    const cp: u21 = 0x10000 + (@as(u21, high - 0xD800) << 10) + (@as(u21, low - 0xDC00));
+    var buf: [4]u8 = undefined;
+    _ = std.unicode.utf8Encode(cp, &buf) catch unreachable; // always in 0x10000-0x10FFFF by construction
+    return buf;
+}
+
+/// Converts this library's internal WTF-8 (see `encodeSurrogateWtf8`)
+/// to well-formed, real UTF-8 by replacing every lone surrogate with
+/// the standard replacement character U+FFFD -- what any REAL UTF-8
+/// consumer (a terminal, a file, a network socket) must receive,
+/// since actual UTF-8 cannot express an unpaired surrogate at all.
+/// Every JS-visible string operation (length, charAt, slice,
+/// concatenation, ...) works on the raw WTF-8 bytes directly and
+/// never needs this; only the boundary where those bytes leave the
+/// engine as "real UTF-8 text" does (console.log, JSON.stringify,
+/// uncaught-exception printing, ...). Always allocates a fresh copy,
+/// even when `str` has no lone surrogate to replace -- simpler
+/// ownership for callers than a maybe-borrowed result, and this only
+/// runs at output boundaries, not on any hot path.
+pub fn sanitizeWtf8ToUtf8(allocator: std.mem.Allocator, str: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    var i: usize = 0;
+    while (i < str.len) {
+        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch {
+            try out.append(allocator, str[i]);
+            i += 1;
+            continue;
+        };
+        if (i + cp_len > str.len) {
+            try out.appendSlice(allocator, str[i..]);
+            break;
+        }
+        if (cp_len == 3 and decodeSurrogateWtf8(str[i .. i + 3]) != null) {
+            try out.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
+            i += 3;
+            continue;
+        }
+        try out.appendSlice(allocator, str[i .. i + cp_len]);
+        i += cp_len;
+    }
+    return out.toOwnedSlice(allocator);
+}
+
 /// Returns the length of a UTF-8 string in UTF-16 code units
 /// This matches JavaScript's String.length behavior
 ///
@@ -35,6 +155,14 @@ pub fn lengthUtf16(str: []const u8) usize {
         }
 
         const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch {
+            // This library's own WTF-8 lone-surrogate encoding (see
+            // encodeSurrogateWtf8) is exactly one UTF-16 unit, 3 bytes
+            // -- not the generic "invalid, 1 byte" fallback below.
+            if (cp_len == 3 and decodeSurrogateWtf8(str[i .. i + 3]) != null) {
+                i += 3;
+                count += 1;
+                continue;
+            }
             // Invalid UTF-8 sequence, count as 1
             i += 1;
             count += 1;
@@ -88,6 +216,11 @@ pub fn byteIndexToUtf16(str: []const u8, byte_index: usize) Utf16Error!usize {
         }
 
         const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch {
+            if (cp_len == 3 and decodeSurrogateWtf8(str[i .. i + 3]) != null) {
+                i += 3;
+                utf16_count += 1;
+                continue;
+            }
             i += 1;
             utf16_count += 1;
             continue;
@@ -147,6 +280,11 @@ pub fn utf16IndexToBytePos(str: []const u8, utf16_index: usize) Utf16Error!Utf16
         }
 
         const codepoint = std.unicode.utf8Decode(str[byte_index .. byte_index + cp_len]) catch {
+            if (cp_len == 3 and decodeSurrogateWtf8(str[byte_index .. byte_index + 3]) != null) {
+                byte_index += 3;
+                utf16_count += 1;
+                continue;
+            }
             // Invalid sequence, treat as single byte
             byte_index += 1;
             utf16_count += 1;
@@ -208,7 +346,14 @@ fn prevCodepointStart(str: []const u8, pos: usize) usize {
 
     const seq_len = std.unicode.utf8ByteSequenceLength(str[start]) catch return pos - 1;
     if (start + seq_len != pos) return pos - 1;
-    _ = std.unicode.utf8Decode(str[start..pos]) catch return pos - 1;
+    _ = std.unicode.utf8Decode(str[start..pos]) catch {
+        // A well-formed 3-byte WTF-8 lone surrogate (see
+        // encodeSurrogateWtf8) is exactly one previous code unit,
+        // starting at `start` -- not the generic "invalid, back up one
+        // raw byte" fallback.
+        if (seq_len == 3 and decodeSurrogateWtf8(str[start..pos]) != null) return start;
+        return pos - 1;
+    };
     return start;
 }
 
@@ -228,6 +373,14 @@ fn prevCodepointStart(str: []const u8, pos: usize) usize {
 /// the same byte position. Returns error.IndexOutOfBounds if
 /// `count_from_end` is 0 or exceeds the string's UTF-16 length.
 pub fn utf16IndexFromEndToByte(str: []const u8, count_from_end: usize) Utf16Error!usize {
+    return (try utf16IndexFromEndToBytePos(str, count_from_end)).byte_index;
+}
+
+/// Same as `utf16IndexFromEndToByte`, but also reports whether
+/// `count_from_end` landed on the low-surrogate half of a surrogate
+/// pair (see `Utf16Position`) -- `at()`'s negative-index path needs
+/// this to return just that half, WTF-8-encoded, not the whole pair.
+pub fn utf16IndexFromEndToBytePos(str: []const u8, count_from_end: usize) Utf16Error!Utf16Position {
     if (count_from_end == 0) return error.IndexOutOfBounds;
 
     var pos = str.len;
@@ -238,10 +391,13 @@ pub fn utf16IndexFromEndToByte(str: []const u8, count_from_end: usize) Utf16Erro
         const span_len = pos - start;
         // A 4-byte UTF-8 sequence always decodes to an astral code point
         // (U+10000-U+10FFFF), which is always 2 UTF-16 units; every other
-        // span (1-3 valid bytes, or the 1-byte invalid fallback) is 1 unit.
+        // span (1-3 valid bytes, a 3-byte WTF-8 lone surrogate, or the
+        // 1-byte invalid fallback) is 1 unit.
         const units: usize = if (span_len == 4) 2 else 1;
 
-        if (remaining <= units) return start;
+        if (remaining <= units) {
+            return .{ .byte_index = start, .is_low_surrogate = units == 2 and remaining == 1 };
+        }
         remaining -= units;
         pos = start;
     }
@@ -276,6 +432,13 @@ pub fn codeUnitAt(str: []const u8, utf16_index: usize) Utf16Error!u16 {
     }
 
     const codepoint = std.unicode.utf8Decode(str[byte_idx .. byte_idx + cp_len]) catch {
+        // An existing WTF-8 lone surrogate already in the string (see
+        // encodeSurrogateWtf8) -- e.g. from a prior charAt()/at() on
+        // an astral pair -- reads back as its own code unit value
+        // directly, not an error.
+        if (cp_len == 3) {
+            if (decodeSurrogateWtf8(str[byte_idx .. byte_idx + 3])) |surrogate| return surrogate;
+        }
         return error.InvalidUtf8;
     };
 

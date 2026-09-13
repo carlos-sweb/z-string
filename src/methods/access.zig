@@ -20,20 +20,38 @@ pub fn charAt(allocator: Allocator, str: []const u8, index: isize) ![]u8 {
     }
     const idx: usize = @intCast(index);
 
-    // Convert UTF-16 index to byte index. `utf16IndexToByte` already scans
-    // forward and reports out-of-bounds on its own (it errors once it runs
-    // out of string before reaching `idx`), so there's no need for a
-    // separate `lengthUtf16` pass first just to bounds-check — that would
-    // scan the *whole* string even when `idx` is small (e.g. 0).
-    const byte_idx = utf16.utf16IndexToByte(str, idx) catch {
+    // Convert UTF-16 index to byte index (+ which surrogate half, if
+    // any). `utf16IndexToBytePos` already scans forward and reports
+    // out-of-bounds on its own (it errors once it runs out of string
+    // before reaching `idx`), so there's no need for a separate
+    // `lengthUtf16` pass first just to bounds-check — that would scan
+    // the *whole* string even when `idx` is small (e.g. 0).
+    const pos = utf16.utf16IndexToBytePos(str, idx) catch {
         return allocator.alloc(u8, 0);
     };
 
-    if (byte_idx >= str.len) {
+    if (pos.byte_index >= str.len) {
         return allocator.alloc(u8, 0);
     }
 
-    // Get the UTF-8 sequence length
+    if (try extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate)) |result| return result;
+    return allocator.alloc(u8, 0);
+}
+
+/// Extracts exactly ONE UTF-16 code unit's worth of bytes starting at
+/// `byte_idx` (already resolved from a UTF-16 index by
+/// `utf16IndexToBytePos`/`utf16IndexFromEndToBytePos`). For a BMP
+/// character or an existing lone WTF-8 surrogate (see
+/// `encodeSurrogateWtf8`), this is just the sequence already there.
+/// For an astral pair (always a 4-byte UTF-8 sequence, always 2
+/// UTF-16 units), a single JS code unit can't hold the whole thing --
+/// this returns ONLY the requested half (`is_low_surrogate` picks
+/// which), WTF-8-encoded, matching real `charAt`/`at` splitting a
+/// surrogate pair (z-string-surrogate-charat.md). Null only for an
+/// incomplete trailing sequence at `byte_idx` -- callers each map
+/// that to their own out-of-bounds convention (`charAt`: empty
+/// string; `at`: null).
+pub fn extractCodeUnit(allocator: Allocator, str: []const u8, byte_idx: usize, is_low_surrogate: bool) !?[]u8 {
     const cp_len = std.unicode.utf8ByteSequenceLength(str[byte_idx]) catch {
         // Invalid UTF-8, return single byte
         const result = try allocator.alloc(u8, 1);
@@ -43,11 +61,31 @@ pub fn charAt(allocator: Allocator, str: []const u8, index: isize) ![]u8 {
 
     if (byte_idx + cp_len > str.len) {
         // Incomplete sequence
-        return allocator.alloc(u8, 0);
+        return null;
     }
 
-    // Return the UTF-8 sequence as a new string
-    return allocator.dupe(u8, str[byte_idx .. byte_idx + cp_len]);
+    if (cp_len == 4) {
+        // A 4-byte UTF-8 sequence always decodes to an astral
+        // codepoint (U+10000-U+10FFFF) -- split it into just the
+        // requested surrogate half. A malformed continuation byte
+        // (leading byte says 4, but the rest doesn't validate) falls
+        // back to a verbatim copy, same as any other invalid sequence
+        // elsewhere in this module.
+        const codepoint = std.unicode.utf8Decode(str[byte_idx .. byte_idx + 4]) catch {
+            return try allocator.dupe(u8, str[byte_idx .. byte_idx + cp_len]);
+        };
+        const adjusted = codepoint - 0x10000;
+        const surrogate: u16 = if (is_low_surrogate)
+            0xDC00 + @as(u16, @intCast(adjusted & 0x3FF))
+        else
+            0xD800 + @as(u16, @intCast((adjusted >> 10) & 0x3FF));
+        const result = try allocator.alloc(u8, 3);
+        utf16.encodeSurrogateWtf8(result[0..3], surrogate);
+        return result;
+    }
+
+    // BMP char, or an existing lone WTF-8 surrogate -- copy verbatim.
+    return try allocator.dupe(u8, str[byte_idx .. byte_idx + cp_len]);
 }
 
 /// String.prototype.at(index)
@@ -72,29 +110,16 @@ pub fn at(allocator: Allocator, str: []const u8, index: isize) !?[]u8 {
     // forward scan to reach it, walk backward from the end of the string
     // instead. `utf16IndexFromEndToByte` costs O(|index|), not O(str.len) —
     // a real difference for e.g. `at(-1)` on a long string.
-    const byte_idx = if (index >= 0)
-        utf16.utf16IndexToByte(str, @intCast(index)) catch return null
+    const pos = if (index >= 0)
+        utf16.utf16IndexToBytePos(str, @intCast(index)) catch return null
     else
-        utf16.utf16IndexFromEndToByte(str, @intCast(-index)) catch return null;
+        utf16.utf16IndexFromEndToBytePos(str, @intCast(-index)) catch return null;
 
-    if (byte_idx >= str.len) {
+    if (pos.byte_index >= str.len) {
         return null;
     }
 
-    // Get the UTF-8 sequence length
-    const cp_len = std.unicode.utf8ByteSequenceLength(str[byte_idx]) catch {
-        // Invalid UTF-8, return single byte
-        const result = try allocator.alloc(u8, 1);
-        result[0] = str[byte_idx];
-        return result;
-    };
-
-    if (byte_idx + cp_len > str.len) {
-        return null;
-    }
-
-    // Return the UTF-8 sequence as a new string
-    return try allocator.dupe(u8, str[byte_idx .. byte_idx + cp_len]);
+    return extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate);
 }
 
 /// String.prototype.charCodeAt(index)
@@ -144,29 +169,46 @@ pub fn codePointAt(str: []const u8, index: isize) ?u21 {
     }
     const idx: usize = @intCast(index);
 
-    // utf16IndexToByte already reports out-of-bounds itself, no separate
-    // lengthUtf16 pass needed first.
-    const byte_idx = utf16.utf16IndexToByte(str, idx) catch {
+    // utf16IndexToBytePos already reports out-of-bounds itself, no
+    // separate lengthUtf16 pass needed first.
+    const pos = utf16.utf16IndexToBytePos(str, idx) catch {
         return null;
     };
 
-    if (byte_idx >= str.len) {
+    if (pos.byte_index >= str.len) {
         return null;
     }
 
+    // Real spec: codePointAt at the LOW-surrogate half of a pair
+    // returns just that surrogate's own value, not the combined
+    // astral codepoint -- codeUnitAt already computes exactly this
+    // (and also already handles an existing lone WTF-8 surrogate
+    // stored at this position, widening to u21 either way).
+    if (pos.is_low_surrogate) {
+        return @as(u21, utf16.codeUnitAt(str, idx) catch return null);
+    }
+
     // Get the UTF-8 sequence length
-    const cp_len = std.unicode.utf8ByteSequenceLength(str[byte_idx]) catch {
+    const cp_len = std.unicode.utf8ByteSequenceLength(str[pos.byte_index]) catch {
         // Invalid UTF-8
         return null;
     };
 
-    if (byte_idx + cp_len > str.len) {
+    if (pos.byte_index + cp_len > str.len) {
         // Incomplete sequence
         return null;
     }
 
-    // Decode the UTF-8 sequence to get the full code point
-    const codepoint = std.unicode.utf8Decode(str[byte_idx .. byte_idx + cp_len]) catch {
+    // Decode the UTF-8 sequence to get the full code point.
+    const codepoint = std.unicode.utf8Decode(str[pos.byte_index .. pos.byte_index + cp_len]) catch {
+        // An existing lone WTF-8 surrogate already at this position
+        // (not the high half of a pair, since is_low_surrogate is
+        // false here) -- its own value, same as codeUnitAt.
+        if (cp_len == 3) {
+            if (utf16.decodeSurrogateWtf8(str[pos.byte_index .. pos.byte_index + 3])) |surrogate| {
+                return surrogate;
+            }
+        }
         return null;
     };
 
@@ -231,17 +273,19 @@ test "charAt - Unicode BMP" {
 test "charAt - emoji (surrogate pair)" {
     const allocator = std.testing.allocator;
 
-    // 😀 is U+1F600, which is a surrogate pair in UTF-16
-    // In UTF-8 it's 4 bytes: F0 9F 98 80
-    // charAt(0) should return the entire emoji as UTF-8
+    // 😀 is U+1F600, a surrogate pair in UTF-16 (high U+D83D, low
+    // U+DE00). charAt(0)/(1) each return JUST that one code unit --
+    // a lone surrogate isn't valid UTF-8, so it's WTF-8-encoded (see
+    // encodeSurrogateWtf8) -- confirmed against real Node
+    // (z-string-surrogate-charat.md): NOT the whole 4-byte emoji
+    // either time.
     const result1 = try charAt(allocator, "😀", 0);
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("😀", result1);
+    try std.testing.expectEqualStrings("\xED\xA0\xBD", result1);
 
-    // charAt(1) also returns the same emoji (low surrogate position)
     const result2 = try charAt(allocator, "😀", 1);
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("😀", result2);
+    try std.testing.expectEqualStrings("\xED\xB8\x80", result2);
 
     // Out of bounds (emoji has length 2 in UTF-16)
     const result3 = try charAt(allocator, "😀", 2);
@@ -304,18 +348,19 @@ test "at - out of bounds returns null" {
 test "at - emoji with negative index" {
     const allocator = std.testing.allocator;
 
-    // "😀" has length 2 in UTF-16
-    // at(-1) should return the emoji (accessing the low surrogate position)
+    // "😀" has length 2 in UTF-16: at(-1) is the low-surrogate half
+    // (U+DE00), at(-2) the high-surrogate half (U+D83D) -- confirmed
+    // against real Node, neither is the whole emoji
+    // (z-string-surrogate-charat.md).
     const result1 = try at(allocator, "😀", -1);
     try std.testing.expect(result1 != null);
     defer allocator.free(result1.?);
-    try std.testing.expectEqualStrings("😀", result1.?);
+    try std.testing.expectEqualStrings("\xED\xB8\x80", result1.?);
 
-    // at(-2) should return the emoji (accessing the high surrogate position)
     const result2 = try at(allocator, "😀", -2);
     try std.testing.expect(result2 != null);
     defer allocator.free(result2.?);
-    try std.testing.expectEqualStrings("😀", result2.?);
+    try std.testing.expectEqualStrings("\xED\xA0\xBD", result2.?);
 
     // at(-3) is out of bounds
     const result3 = try at(allocator, "😀", -3);
@@ -367,13 +412,13 @@ test "codePointAt - Unicode BMP" {
 }
 
 test "codePointAt - emoji (full code point)" {
-    // 😀 is U+1F600
-    // At index 0 (high surrogate position), should return full code point
+    // 😀 is U+1F600. At index 0 (the high-surrogate/pair-start
+    // position), real spec combines the pair and returns the full
+    // code point. At index 1 (the low-surrogate position), it does
+    // NOT re-combine -- it returns just that surrogate's own value,
+    // confirmed against real Node (z-string-surrogate-charat.md).
     try std.testing.expectEqual(@as(?u21, 0x1F600), codePointAt("😀", 0));
-
-    // At index 1 (low surrogate position), should still return full code point
-    // because both indices point to the same UTF-8 sequence
-    try std.testing.expectEqual(@as(?u21, 0x1F600), codePointAt("😀", 1));
+    try std.testing.expectEqual(@as(?u21, 0xDE00), codePointAt("😀", 1));
 
     // Out of bounds
     try std.testing.expectEqual(@as(?u21, null), codePointAt("😀", 2));
@@ -383,9 +428,11 @@ test "codePointAt - mixed content" {
     const str = "a😀b";
     // 'a' at index 0
     try std.testing.expectEqual(@as(?u21, 0x0061), codePointAt(str, 0));
-    // emoji at indices 1-2
+    // emoji high-surrogate/pair-start at index 1 -> full code point;
+    // low-surrogate at index 2 -> just that surrogate's own value
+    // (same real-spec rule as the dedicated surrogate-pair test above).
     try std.testing.expectEqual(@as(?u21, 0x1F600), codePointAt(str, 1));
-    try std.testing.expectEqual(@as(?u21, 0x1F600), codePointAt(str, 2));
+    try std.testing.expectEqual(@as(?u21, 0xDE00), codePointAt(str, 2));
     // 'b' at index 3
     try std.testing.expectEqual(@as(?u21, 0x0062), codePointAt(str, 3));
 }

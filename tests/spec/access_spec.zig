@@ -55,15 +55,17 @@ test "spec - charAt with surrogate pairs" {
     // "😀A".charAt(0) === "\uD83D" (high surrogate)
     // "😀A".charAt(1) === "\uDE00" (low surrogate)
     // "😀A".charAt(2) === "A"
-
-    // For our implementation, charAt returns the full UTF-8 character
+    //
+    // Matches real Node now: each lone surrogate half is WTF-8-encoded
+    // (see encodeSurrogateWtf8), not the whole 4-byte emoji
+    // (z-string-surrogate-charat.md).
     const ch0 = try str.charAt(allocator, 0);
     defer allocator.free(ch0);
-    try std.testing.expectEqualStrings("😀", ch0);
+    try std.testing.expectEqualStrings("\xED\xA0\xBD", ch0);
 
     const ch1 = try str.charAt(allocator, 1);
     defer allocator.free(ch1);
-    try std.testing.expectEqualStrings("😀", ch1);
+    try std.testing.expectEqualStrings("\xED\xB8\x80", ch1);
 
     const ch2 = try str.charAt(allocator, 2);
     defer allocator.free(ch2);
@@ -150,12 +152,14 @@ test "spec - at with emoji and negative index" {
     const allocator = std.testing.allocator;
     const str = zstring.ZString.init("😀😃");
 
-    // "😀😃".length === 4 in JS (2 code units each)
-    // "😀😃".at(-1) should return the second emoji (at low surrogate position)
+    // "😀😃".length === 4 in JS (2 code units each): at(-1) is the
+    // LAST code unit -- 😃's own low-surrogate half (U+DE03), not the
+    // whole second emoji, confirmed against real Node
+    // (z-string-surrogate-charat.md).
     const ch = try str.at(allocator, -1);
     try std.testing.expect(ch != null);
     defer allocator.free(ch.?);
-    try std.testing.expectEqualStrings("😃", ch.?);
+    try std.testing.expectEqualStrings("\xED\xB8\x83", ch.?);
 }
 
 // ============================================================================
@@ -257,8 +261,10 @@ test "spec - codePointAt with surrogate pairs" {
     // At high surrogate position, return full code point
     try std.testing.expectEqual(@as(?u21, 0x1F600), str.codePointAt(0));
 
-    // At low surrogate position, still return full code point (our implementation)
-    try std.testing.expectEqual(@as(?u21, 0x1F600), str.codePointAt(1));
+    // At low surrogate position, return just that surrogate's own
+    // value -- confirmed against real Node, no re-combination
+    // (z-string-surrogate-charat.md).
+    try std.testing.expectEqual(@as(?u21, 0xDE00), str.codePointAt(1));
 }
 
 test "spec - codePointAt with mixed content" {
@@ -268,11 +274,11 @@ test "spec - codePointAt with mixed content" {
     // "A😀B".codePointAt(0) === 65 ('A')
     try std.testing.expectEqual(@as(?u21, 0x0041), str.codePointAt(0));
 
-    // "A😀B".codePointAt(1) === 0x1F600 (emoji)
+    // "A😀B".codePointAt(1) === 0x1F600 (pair-start position, combined)
     try std.testing.expectEqual(@as(?u21, 0x1F600), str.codePointAt(1));
 
-    // "A😀B".codePointAt(2) === emoji or low surrogate
-    try std.testing.expectEqual(@as(?u21, 0x1F600), str.codePointAt(2));
+    // "A😀B".codePointAt(2) === 0xDE00 (low-surrogate position, own value)
+    try std.testing.expectEqual(@as(?u21, 0xDE00), str.codePointAt(2));
 
     // "A😀B".codePointAt(3) === 66 ('B')
     try std.testing.expectEqual(@as(?u21, 0x0042), str.codePointAt(3));

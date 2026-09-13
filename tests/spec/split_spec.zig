@@ -231,13 +231,17 @@ test "spec - split: Emoji characters" {
     // Emoji splitting with empty separator
     const allocator = std.testing.allocator;
 
+    // split("") works per UTF-16 code unit: the emoji's own two
+    // surrogate halves come out separately (4 parts total), confirmed
+    // against real Node (z-string-surrogate-charat.md).
     const str = zstring.ZString.init("a😀b");
     const result = try str.split(allocator, "", null);
     defer zstring.ZString.freeSplitResult(allocator, result);
-    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqual(@as(usize, 4), result.len);
     try std.testing.expectEqualStrings("a", result[0]);
-    try std.testing.expectEqualStrings("😀", result[1]);
-    try std.testing.expectEqualStrings("b", result[2]);
+    try std.testing.expectEqualStrings("\xED\xA0\xBD", result[1]);
+    try std.testing.expectEqualStrings("\xED\xB8\x80", result[2]);
+    try std.testing.expectEqualStrings("b", result[3]);
 }
 
 test "spec - split: real-world examples" {

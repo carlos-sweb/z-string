@@ -1,5 +1,6 @@
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
+const access = @import("access.zig");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.slice(start, end)
@@ -44,16 +45,50 @@ pub fn slice(allocator: Allocator, str: []const u8, start: isize, end: ?isize) !
     const start_usize: usize = @intCast(real_start);
     const end_usize: usize = @intCast(real_end);
 
-    // Convert UTF-16 indices to byte indices
-    const start_byte = utf16.utf16IndexToByte(str, start_usize) catch {
+    // Convert UTF-16 indices to byte positions (+ which surrogate
+    // half, if either boundary lands on one).
+    const start_pos = utf16.utf16IndexToBytePos(str, start_usize) catch {
         return allocator.alloc(u8, 0);
     };
-    const end_byte = utf16.utf16IndexToByte(str, end_usize) catch {
+    const end_pos = utf16.utf16IndexToBytePos(str, end_usize) catch {
         return allocator.alloc(u8, 0);
     };
 
-    // Return the slice
-    return allocator.dupe(u8, str[start_byte..end_byte]);
+    // Common case: neither boundary splits an astral pair (both
+    // halves of a pair resolve to the SAME byte position -- see
+    // utf16IndexToBytePos) -- a plain byte-range copy is correct.
+    if (!start_pos.is_low_surrogate and !end_pos.is_low_surrogate) {
+        return allocator.dupe(u8, str[start_pos.byte_index..end_pos.byte_index]);
+    }
+
+    // One (or both) boundary lands on the low-surrogate half of an
+    // astral pair -- a raw byte range can't express "half of a 4-byte
+    // sequence". Rebuild one UTF-16 code unit at a time instead (same
+    // primitive charAt/at use), WTF-8-encoding just the needed
+    // surrogate half at each end instead of including/excluding the
+    // whole 4 bytes (z-string-surrogate-charat.md).
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(allocator);
+    var i = start_usize;
+    while (i < end_usize) : (i += 1) {
+        const pos = utf16.utf16IndexToBytePos(str, i) catch break;
+        if (pos.byte_index >= str.len) break;
+        if (try access.extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate)) |unit| {
+            defer allocator.free(unit);
+            // Consecutive extracted units can themselves be a real
+            // astral pair split across the loop boundary (e.g. slicing
+            // across two adjacent astral chars) -- merge, don't just
+            // append raw (z-string-surrogate-charat.md).
+            if (utf16.mergeSurrogateBoundary(result.items, unit)) |merged| {
+                result.items.len -= 3;
+                try result.appendSlice(allocator, &merged);
+                try result.appendSlice(allocator, unit[3..]);
+            } else {
+                try result.appendSlice(allocator, unit);
+            }
+        }
+    }
+    return result.toOwnedSlice(allocator);
 }
 
 /// String.prototype.substring(start, end)
@@ -93,16 +128,42 @@ pub fn substring(allocator: Allocator, str: []const u8, start: isize, end: ?isiz
     const start_usize: usize = @intCast(real_start);
     const end_usize: usize = @intCast(real_end);
 
-    // Convert UTF-16 indices to byte indices
-    const start_byte = utf16.utf16IndexToByte(str, start_usize) catch {
+    // Convert UTF-16 indices to byte positions (+ which surrogate
+    // half, if either boundary lands on one) -- same reasoning as
+    // slice() above.
+    const start_pos = utf16.utf16IndexToBytePos(str, start_usize) catch {
         return allocator.alloc(u8, 0);
     };
-    const end_byte = utf16.utf16IndexToByte(str, end_usize) catch {
+    const end_pos = utf16.utf16IndexToBytePos(str, end_usize) catch {
         return allocator.alloc(u8, 0);
     };
 
-    // Return the substring
-    return allocator.dupe(u8, str[start_byte..end_byte]);
+    if (!start_pos.is_low_surrogate and !end_pos.is_low_surrogate) {
+        return allocator.dupe(u8, str[start_pos.byte_index..end_pos.byte_index]);
+    }
+
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(allocator);
+    var i = start_usize;
+    while (i < end_usize) : (i += 1) {
+        const pos = utf16.utf16IndexToBytePos(str, i) catch break;
+        if (pos.byte_index >= str.len) break;
+        if (try access.extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate)) |unit| {
+            defer allocator.free(unit);
+            // Consecutive extracted units can themselves be a real
+            // astral pair split across the loop boundary (e.g. slicing
+            // across two adjacent astral chars) -- merge, don't just
+            // append raw (z-string-surrogate-charat.md).
+            if (utf16.mergeSurrogateBoundary(result.items, unit)) |merged| {
+                result.items.len -= 3;
+                try result.appendSlice(allocator, &merged);
+                try result.appendSlice(allocator, unit[3..]);
+            } else {
+                try result.appendSlice(allocator, unit);
+            }
+        }
+    }
+    return result.toOwnedSlice(allocator);
 }
 
 /// String.prototype.concat(...strings)
@@ -114,27 +175,26 @@ pub fn substring(allocator: Allocator, str: []const u8, start: isize, end: ?isiz
 ///   concat(allocator, "hello", &[_][]const u8{"world"}) -> "helloworld"
 ///   concat(allocator, "a", &[_][]const u8{"b", "c"}) -> "abc"
 pub fn concat(allocator: Allocator, str: []const u8, strings: []const []const u8) ![]u8 {
-    // Calculate total length
-    var total_len: usize = str.len;
+    // Built incrementally (not a single precomputed-length buffer):
+    // z-string-surrogate-charat.md's boundary canonicalization can
+    // SHRINK the total length by 2 bytes at any join (a WTF-8 high+low
+    // surrogate pair merging into one real 4-byte UTF-8 sequence), so
+    // the final size isn't knowable up front.
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(allocator);
+    try result.appendSlice(allocator, str);
+
     for (strings) |s| {
-        total_len += s.len;
+        if (utf16.mergeSurrogateBoundary(result.items, s)) |merged| {
+            result.items.len -= 3;
+            try result.appendSlice(allocator, &merged);
+            try result.appendSlice(allocator, s[3..]);
+        } else {
+            try result.appendSlice(allocator, s);
+        }
     }
 
-    // Allocate result buffer
-    var result = try allocator.alloc(u8, total_len);
-    errdefer allocator.free(result);
-
-    // Copy the original string
-    @memcpy(result[0..str.len], str);
-    var pos: usize = str.len;
-
-    // Append each additional string
-    for (strings) |s| {
-        @memcpy(result[pos .. pos + s.len], s);
-        pos += s.len;
-    }
-
-    return result;
+    return result.toOwnedSlice(allocator);
 }
 
 /// String.prototype.repeat(count)

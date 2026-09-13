@@ -80,6 +80,31 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
                 break;
             }
 
+            if (cp_len == 4) {
+                // A 4-byte UTF-8 sequence always decodes to an astral
+                // codepoint -- split(""), unlike everything else in
+                // this file, works per UTF-16 code UNIT, so an astral
+                // character is TWO parts here, not one (confirmed
+                // against Node: `"😀".split("")` is `["\ud83d",
+                // "\ude00"]`, length 2). A malformed continuation byte
+                // falls back to a verbatim single part, same as
+                // elsewhere in this module.
+                if (std.unicode.utf8Decode(str[i .. i + 4])) |codepoint| {
+                    const adjusted = codepoint - 0x10000;
+                    const high: u16 = 0xD800 + @as(u16, @intCast((adjusted >> 10) & 0x3FF));
+                    const low: u16 = 0xDC00 + @as(u16, @intCast(adjusted & 0x3FF));
+                    var buf: [3]u8 = undefined;
+                    utf16.encodeSurrogateWtf8(&buf, high);
+                    try result.append(allocator, try allocator.dupe(u8, &buf));
+                    if (limit == null or result.items.len < limit.?) {
+                        utf16.encodeSurrogateWtf8(&buf, low);
+                        try result.append(allocator, try allocator.dupe(u8, &buf));
+                    }
+                    i += 4;
+                    continue;
+                } else |_| {}
+            }
+
             const char = try allocator.dupe(u8, str[i .. i + cp_len]);
             try result.append(allocator, char);
 
@@ -293,13 +318,17 @@ test "split - Unicode characters" {
 test "split - Emoji with empty separator" {
     const allocator = std.testing.allocator;
 
-    // "a😀b".split("") -> ["a", "😀", "b"]
+    // split("") works per UTF-16 code unit, not per Unicode codepoint
+    // -- "a😀b".split("") is ["a", "\ud83d", "\ude00", "b"] (4 parts,
+    // the emoji's own two surrogate halves separately), confirmed
+    // against real Node (z-string-surrogate-charat.md).
     const result = try split(allocator, "a😀b", "", null);
     defer freeSplitResult(allocator, result);
-    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqual(@as(usize, 4), result.len);
     try std.testing.expectEqualStrings("a", result[0]);
-    try std.testing.expectEqualStrings("😀", result[1]);
-    try std.testing.expectEqualStrings("b", result[2]);
+    try std.testing.expectEqualStrings("\xED\xA0\xBD", result[1]);
+    try std.testing.expectEqualStrings("\xED\xB8\x80", result[2]);
+    try std.testing.expectEqualStrings("b", result[3]);
 }
 
 test "split - empty separator with an invalid lead byte mid-string doesn't drop the rest" {
