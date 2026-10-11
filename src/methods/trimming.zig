@@ -1,8 +1,9 @@
 const std = @import("std");
+const utf16 = @import("../core/utf16.zig");
 const Allocator = std.mem.Allocator;
 
 /// Checks if a Unicode code point is considered whitespace according to ECMAScript spec
-/// Spec: https://tc39.es/ecma262/2025/#sec-white-space
+/// Spec: https://tc39.es/ecma262/#sec-white-space
 ///
 /// ECMAScript whitespace includes:
 /// - U+0009 (TAB)
@@ -52,7 +53,7 @@ fn isWhitespace(codepoint: u21) bool {
 }
 
 /// String.prototype.trim()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trim
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.trim
 ///
 /// Removes whitespace from both ends of a string.
 /// Returns a new string without modifying the original.
@@ -78,7 +79,8 @@ pub fn trim(allocator: Allocator, str: []const u8) ![]u8 {
 
         if (i + cp_len > str.len) break;
 
-        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch {
+        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch blk: {
+            if (cp_len == 3) if (utf16.decodeSurrogateWtf8(str[i..][0..3])) |cp| break :blk @as(u21, cp);
             break;
         };
 
@@ -109,7 +111,10 @@ pub fn trim(allocator: Allocator, str: []const u8) ![]u8 {
         const cp_len = std.unicode.utf8ByteSequenceLength(str[char_start]) catch break;
         if (char_start + cp_len > str.len) break;
 
-        const codepoint = std.unicode.utf8Decode(str[char_start .. char_start + cp_len]) catch break;
+        const codepoint = std.unicode.utf8Decode(str[char_start .. char_start + cp_len]) catch blk: {
+            if (cp_len == 3) if (utf16.decodeSurrogateWtf8(str[char_start..][0..3])) |cp| break :blk @as(u21, cp);
+            break;
+        };
 
         if (!isWhitespace(codepoint)) {
             end_byte = char_start + cp_len;
@@ -124,7 +129,7 @@ pub fn trim(allocator: Allocator, str: []const u8) ![]u8 {
 }
 
 /// String.prototype.trimStart() / trimLeft()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trimstart
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.trimstart
 ///
 /// Removes whitespace from the beginning of a string.
 /// trimLeft() is an alias for trimStart().
@@ -145,7 +150,10 @@ pub fn trimStart(allocator: Allocator, str: []const u8) ![]u8 {
         const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch break;
         if (i + cp_len > str.len) break;
 
-        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch break;
+        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch blk: {
+            if (cp_len == 3) if (utf16.decodeSurrogateWtf8(str[i..][0..3])) |cp| break :blk @as(u21, cp);
+            break;
+        };
 
         if (!isWhitespace(codepoint)) {
             start_byte = i;
@@ -168,7 +176,7 @@ pub fn trimStart(allocator: Allocator, str: []const u8) ![]u8 {
 pub const trimLeft = trimStart;
 
 /// String.prototype.trimEnd() / trimRight()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trimend
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.trimend
 ///
 /// Removes whitespace from the end of a string.
 /// trimRight() is an alias for trimEnd().
@@ -195,7 +203,10 @@ pub fn trimEnd(allocator: Allocator, str: []const u8) ![]u8 {
         const cp_len = std.unicode.utf8ByteSequenceLength(str[char_start]) catch break;
         if (char_start + cp_len > str.len) break;
 
-        const codepoint = std.unicode.utf8Decode(str[char_start .. char_start + cp_len]) catch break;
+        const codepoint = std.unicode.utf8Decode(str[char_start .. char_start + cp_len]) catch blk: {
+            if (cp_len == 3) if (utf16.decodeSurrogateWtf8(str[char_start..][0..3])) |cp| break :blk @as(u21, cp);
+            break;
+        };
 
         if (!isWhitespace(codepoint)) {
             end_byte = char_start + cp_len;

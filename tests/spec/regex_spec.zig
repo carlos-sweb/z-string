@@ -6,7 +6,7 @@ const zstring = @import("zstring");
 // ============================================================================
 
 test "spec - search: basic pattern" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.search
+    // https://tc39.es/ecma262/#sec-string.prototype.search
     //
     // JavaScript behavior:
     // "hello world".search("world") -> 6
@@ -45,7 +45,7 @@ test "spec - search: case insensitive pattern" {
 }
 
 test "spec - match: basic pattern" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.match
+    // https://tc39.es/ecma262/#sec-string.prototype.match
     //
     // JavaScript behavior:
     // "hello world".match("world") -> ["world"]
@@ -88,7 +88,7 @@ test "spec - match: with capture groups" {
 }
 
 test "spec - matchAll: multiple matches" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.matchall
+    // https://tc39.es/ecma262/#sec-string.prototype.matchall
     //
     // JavaScript behavior:
     // "test test test".matchAll("test") -> iterator with 3 matches
@@ -135,7 +135,7 @@ test "spec - matchAll: overlapping patterns" {
 }
 
 test "spec - replace: basic replacement" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.replace
+    // https://tc39.es/ecma262/#sec-string.prototype.replace
     //
     // JavaScript behavior:
     // "hello world".replace("world", "zig") -> "hello zig"
@@ -173,7 +173,7 @@ test "spec - replace: no match" {
 }
 
 test "spec - replaceAll: all matches" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.replaceall
+    // https://tc39.es/ecma262/#sec-string.prototype.replaceall
     //
     // JavaScript behavior:
     // "test test test".replaceAll("test", "TEST") -> "TEST TEST TEST"

@@ -6,7 +6,7 @@ const zstring = @import("zstring");
 // ============================================================================
 
 test "spec - split: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.split
+    // https://tc39.es/ecma262/#sec-string.prototype.split
     //
     // JavaScript behavior:
     // "a,b,c".split(",") -> ["a", "b", "c"]

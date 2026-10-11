@@ -1,9 +1,11 @@
+const units = @import("../core/units.zig");
+const unicode = @import("../unicode/algorithms.zig");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode_normalize = @import("unicode_normalize.zig");
 
 /// String.prototype.toString()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tostring
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.tostring
 ///
 /// Returns the string value.
 /// In JavaScript, this returns the primitive value of a String object.
@@ -15,7 +17,7 @@ pub fn toString(allocator: Allocator, str: []const u8) ![]u8 {
 }
 
 /// String.prototype.valueOf()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.valueof
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.valueof
 ///
 /// Returns the primitive value of a String object.
 /// Identical to toString() in behavior.
@@ -26,7 +28,7 @@ pub fn valueOf(allocator: Allocator, str: []const u8) ![]u8 {
 }
 
 /// String.prototype.localeCompare(that, locales, options)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.localecompare
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.localecompare
 ///
 /// Returns a number indicating whether a reference string comes before,
 /// after, or is the same as the given string in sort order.
@@ -42,31 +44,11 @@ pub fn valueOf(allocator: Allocator, str: []const u8) ![]u8 {
 pub fn localeCompare(str: []const u8, that: []const u8, _locales: ?[]const u8, _options: ?[]const u8) isize {
     _ = _locales;
     _ = _options;
-
-    // Simple lexicographic comparison
-    const min_len = @min(str.len, that.len);
-
-    var i: usize = 0;
-    while (i < min_len) : (i += 1) {
-        if (str[i] < that[i]) {
-            return -1;
-        } else if (str[i] > that[i]) {
-            return 1;
-        }
-    }
-
-    // If all compared characters are equal, the shorter string comes first
-    if (str.len < that.len) {
-        return -1;
-    } else if (str.len > that.len) {
-        return 1;
-    }
-
-    return 0;
+    return unicode.compareCanonical(str, that);
 }
 
 /// String.prototype.normalize(form)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.normalize
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.normalize
 ///
 /// Returns the Unicode Normalization Form of the string.
 ///
@@ -76,11 +58,8 @@ pub fn localeCompare(str: []const u8, that: []const u8, _locales: ?[]const u8, _
 ///   - "NFKC" - Compatibility Decomposition, followed by Canonical Composition
 ///   - "NFKD" - Compatibility Decomposition
 ///
-/// Implementation notes:
-/// - Handles common Latin characters with diacritics (À-ÿ range)
-/// - Implements proper NFC/NFD/NFKC/NFKD normalization for supported characters
-/// - Returns string unchanged for unsupported characters (graceful degradation)
-/// - Full Unicode normalization coverage requires Unicode Character Database (UCD)
+/// Uses complete Unicode 17.0.0 decomposition, composition and combining classes.
+/// Invalid forms retain the legacy copy fallback; use normalizeStrict for errors.
 ///
 /// The returned string must be freed by the caller.
 pub fn normalize(allocator: Allocator, str: []const u8, form: ?[]const u8) ![]u8 {
@@ -250,4 +229,25 @@ test "normalize - accented characters NFC" {
 
     // NFC should produce composed form
     try std.testing.expect(result.len > 0);
+}
+
+/// Strict normalization: unlike the legacy wrapper, invalid forms are errors.
+pub fn normalizeStrict(allocator: Allocator, str: []const u8, form: ?[]const u8) ![]u8 {
+    const parsed = unicode_normalize.NormalizationForm.fromString(form orelse "NFC") orelse return error.InvalidNormalizationForm;
+    return unicode_normalize.normalize(allocator, str, parsed);
+}
+
+/// Owned UTF-8 output; valid surrogate pairs are preserved, isolated halves replaced.
+pub fn toWellFormed(allocator: Allocator, str: []const u8) ![]u8 {
+    return @import("../core/utf16.zig").sanitizeWtf8ToUtf8(allocator, str);
+}
+
+pub fn raw(allocator: Allocator, segments: []const []const u8, substitutions: []const []const u8) ![]u8 {
+    var out: units.Builder = .{ .allocator = allocator };
+    defer out.deinit();
+    for (segments, 0..) |segment, i| {
+        try out.appendString(segment);
+        if (i + 1 < segments.len and i < substitutions.len) try out.appendString(substitutions[i]);
+    }
+    return out.finish();
 }

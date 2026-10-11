@@ -1,10 +1,10 @@
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
-const access = @import("access.zig");
+const units = @import("../core/units.zig");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.slice(start, end)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.slice
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.slice
 ///
 /// Extracts a section of this string and returns it as a new string.
 /// Supports negative indices (count from end).
@@ -61,38 +61,11 @@ pub fn slice(allocator: Allocator, str: []const u8, start: isize, end: ?isize) !
         return allocator.dupe(u8, str[start_pos.byte_index..end_pos.byte_index]);
     }
 
-    // One (or both) boundary lands on the low-surrogate half of an
-    // astral pair -- a raw byte range can't express "half of a 4-byte
-    // sequence". Rebuild one UTF-16 code unit at a time instead (same
-    // primitive charAt/at use), WTF-8-encoding just the needed
-    // surrogate half at each end instead of including/excluding the
-    // whole 4 bytes (z-string-surrogate-charat.md).
-    var result: std.ArrayList(u8) = .empty;
-    errdefer result.deinit(allocator);
-    var i = start_usize;
-    while (i < end_usize) : (i += 1) {
-        const pos = utf16.utf16IndexToBytePos(str, i) catch break;
-        if (pos.byte_index >= str.len) break;
-        if (try access.extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate)) |unit| {
-            defer allocator.free(unit);
-            // Consecutive extracted units can themselves be a real
-            // astral pair split across the loop boundary (e.g. slicing
-            // across two adjacent astral chars) -- merge, don't just
-            // append raw (z-string-surrogate-charat.md).
-            if (utf16.mergeSurrogateBoundary(result.items, unit)) |merged| {
-                result.items.len -= 3;
-                try result.appendSlice(allocator, &merged);
-                try result.appendSlice(allocator, unit[3..]);
-            } else {
-                try result.appendSlice(allocator, unit);
-            }
-        }
-    }
-    return result.toOwnedSlice(allocator);
+    return units.range(allocator, str, start_usize, end_usize);
 }
 
 /// String.prototype.substring(start, end)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.substring
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.substring
 ///
 /// Returns the part of the string between start and end indices.
 ///
@@ -142,32 +115,11 @@ pub fn substring(allocator: Allocator, str: []const u8, start: isize, end: ?isiz
         return allocator.dupe(u8, str[start_pos.byte_index..end_pos.byte_index]);
     }
 
-    var result: std.ArrayList(u8) = .empty;
-    errdefer result.deinit(allocator);
-    var i = start_usize;
-    while (i < end_usize) : (i += 1) {
-        const pos = utf16.utf16IndexToBytePos(str, i) catch break;
-        if (pos.byte_index >= str.len) break;
-        if (try access.extractCodeUnit(allocator, str, pos.byte_index, pos.is_low_surrogate)) |unit| {
-            defer allocator.free(unit);
-            // Consecutive extracted units can themselves be a real
-            // astral pair split across the loop boundary (e.g. slicing
-            // across two adjacent astral chars) -- merge, don't just
-            // append raw (z-string-surrogate-charat.md).
-            if (utf16.mergeSurrogateBoundary(result.items, unit)) |merged| {
-                result.items.len -= 3;
-                try result.appendSlice(allocator, &merged);
-                try result.appendSlice(allocator, unit[3..]);
-            } else {
-                try result.appendSlice(allocator, unit);
-            }
-        }
-    }
-    return result.toOwnedSlice(allocator);
+    return units.range(allocator, str, start_usize, end_usize);
 }
 
 /// String.prototype.concat(...strings)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.concat
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.concat
 ///
 /// Combines the text of one or more strings and returns a new string.
 ///
@@ -198,7 +150,7 @@ pub fn concat(allocator: Allocator, str: []const u8, strings: []const []const u8
 }
 
 /// String.prototype.repeat(count)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.repeat
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.repeat
 ///
 /// Constructs and returns a new string containing the specified number
 /// of copies of this string concatenated together.
@@ -227,6 +179,12 @@ pub fn repeat(allocator: Allocator, str: []const u8, count: isize) ![]u8 {
         return error.OutOfMemory;
     }
 
+    if (utf16.mergeSurrogateBoundary(str, str) != null) {
+        var out: units.Builder = .{ .allocator = allocator };
+        defer out.deinit();
+        for (0..count_usize) |_| try out.appendString(str);
+        return out.finish();
+    }
     const total_len = str.len * count_usize;
 
     // Allocate result buffer

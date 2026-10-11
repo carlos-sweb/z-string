@@ -3,7 +3,7 @@ const zstring = @import("zstring");
 
 // ============================================================================
 // charAt() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.charat
+// https://tc39.es/ecma262/#sec-string.prototype.charat
 // ============================================================================
 
 test "spec - charAt basic functionality" {
@@ -84,7 +84,7 @@ test "spec - charAt empty string" {
 
 // ============================================================================
 // at() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.at
+// https://tc39.es/ecma262/#sec-string.prototype.at
 // ============================================================================
 
 test "spec - at basic functionality" {
@@ -164,7 +164,7 @@ test "spec - at with emoji and negative index" {
 
 // ============================================================================
 // charCodeAt() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.charcodeat
+// https://tc39.es/ecma262/#sec-string.prototype.charcodeat
 // ============================================================================
 
 test "spec - charCodeAt basic functionality" {
@@ -225,7 +225,7 @@ test "spec - charCodeAt with Unicode BMP characters" {
 
 // ============================================================================
 // codePointAt() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.codepointat
+// https://tc39.es/ecma262/#sec-string.prototype.codepointat
 // ============================================================================
 
 test "spec - codePointAt basic functionality" {

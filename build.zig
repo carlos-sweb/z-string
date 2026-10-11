@@ -14,6 +14,8 @@ pub fn build(b: *std.Build) void {
     // Create the zstring module with zregex dependency
     const zstring_module = b.addModule("zstring", .{
         .root_source_file = b.path("src/zstring.zig"),
+        .target = target,
+        .optimize = optimize,
         .imports = &.{
             .{ .name = "zregex", .module = zregex_module },
         },
@@ -52,7 +54,14 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_spec_tests.step);
 
-    // Benchmarks
+    // Benchmark the library and dependency in ReleaseFast even with no -Doptimize.
+    const bench_regex = b.dependency("zregex", .{ .target = target, .optimize = .ReleaseFast }).module("zregex");
+    const bench_module = b.createModule(.{
+        .root_source_file = b.path("src/zstring.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+        .imports = &.{.{ .name = "zregex", .module = bench_regex }},
+    });
     const bench = b.addExecutable(.{
         .name = "bench",
         .root_module = b.createModule(.{
@@ -60,7 +69,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = .ReleaseFast,
             .imports = &.{
-                .{ .name = "zstring", .module = zstring_module },
+                .{ .name = "zstring", .module = bench_module },
             },
         }),
     });

@@ -1,0 +1,17 @@
+Test262 revision: 2e0a56762801e275a9fdf96dc49d90ba0cddcf63
+Source: https://github.com/tc39/test262/tree/2e0a56762801e275a9fdf96dc49d90ba0cddcf63
+License: LICENSE in this directory
+Adapted assertions: 55
+Excluded assertions: typeof-method checks; no runtime coercion or object-property mechanics.
+normalize(null) is adapted to the typed string form "null", after the JS ToString step.
+Generator: tools/generate_test262_fixtures.mjs
+SHA-256:
+a67ce4e6a1595fbce73142d091b580507b617361454cc016de68695ec1d13661  at-returns-code-unit.js
+a4be170547d99a5eed0dd4e86710ed8b4ae2b22246212f98eacd44f357744bae  at-returns-item-relative-index.js
+3ab42fb5ae478fb230f2d2197fa432aa8eaffe03f34865daf4a29d7cec226c41  codePointAt-return-utf16-decode.js
+317209738ee1d92a70790847d0763370da873228e4205c2bdd4c3be5891dc1e6  normalize-form-is-not-valid-throws.js
+5f21fb0315f2e3f2ab28576e981dc535f1e9322a6005794fe54984ae876b9718  padStart-normal-operation.js
+9d491099104fc8178173e00ceca48b452b8793acac68763c571ebfecec65af9a  toLowerCase-Final_Sigma_U180E.js
+d1950d48abd380e96db84e7414179f2ffebbd2dfc6f3794472184977d5a57353  toLowerCase-special_casing_conditional.js
+20c4ad425ca5455bc5727e0281ab50d4d4de0817d5c8c98c36ecec6d42b73a5e  toWellFormed-returns-well-formed-string.js
+6b0515bd05f2ade41276fd22178b154f50983e9b153808bff4000038208e66a3  ../test262_oracle.json

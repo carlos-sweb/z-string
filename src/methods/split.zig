@@ -1,9 +1,10 @@
+const units = @import("../core/units.zig");
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.split(separator, limit)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.split
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.split
 ///
 /// Splits a String object into an array of strings by separating the string
 /// into substrings, using a specified separator string to determine where
@@ -26,19 +27,16 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
         result.deinit(allocator);
     }
 
+    if (limit != null and limit.? == 0) return result.toOwnedSlice(allocator);
+
     // If separator is null, return array with whole string
     if (separator == null) {
         const copy = try allocator.dupe(u8, str);
-        try result.append(allocator, copy);
+        try appendAllocated(&result, allocator, copy);
         return result.toOwnedSlice(allocator);
     }
 
     const sep = separator.?;
-
-    // If limit is 0, return empty array
-    if (limit != null and limit.? == 0) {
-        return result.toOwnedSlice(allocator);
-    }
 
     // If string is empty
     if (str.len == 0) {
@@ -48,7 +46,7 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
         } else {
             // "".split("x") -> [""]
             const empty = try allocator.alloc(u8, 0);
-            try result.append(allocator, empty);
+            try appendAllocated(&result, allocator, empty);
             return result.toOwnedSlice(allocator);
         }
     }
@@ -66,7 +64,7 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
                 // treating it as its own single-byte unit and continuing,
                 // instead of dropping the rest of the string.
                 const char = try allocator.dupe(u8, str[i .. i + 1]);
-                try result.append(allocator, char);
+                try appendAllocated(&result, allocator, char);
                 i += 1;
                 continue;
             };
@@ -76,7 +74,7 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
                 // whole trailing run as one unit, so emit it as a single
                 // final part instead of silently dropping it.
                 const char = try allocator.dupe(u8, str[i..str.len]);
-                try result.append(allocator, char);
+                try appendAllocated(&result, allocator, char);
                 break;
             }
 
@@ -95,10 +93,10 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
                     const low: u16 = 0xDC00 + @as(u16, @intCast(adjusted & 0x3FF));
                     var buf: [3]u8 = undefined;
                     utf16.encodeSurrogateWtf8(&buf, high);
-                    try result.append(allocator, try allocator.dupe(u8, &buf));
+                    try appendAllocated(&result, allocator, try allocator.dupe(u8, &buf));
                     if (limit == null or result.items.len < limit.?) {
                         utf16.encodeSurrogateWtf8(&buf, low);
-                        try result.append(allocator, try allocator.dupe(u8, &buf));
+                        try appendAllocated(&result, allocator, try allocator.dupe(u8, &buf));
                     }
                     i += 4;
                     continue;
@@ -106,10 +104,26 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
             }
 
             const char = try allocator.dupe(u8, str[i .. i + cp_len]);
-            try result.append(allocator, char);
+            try appendAllocated(&result, allocator, char);
 
             i += cp_len;
         }
+        return result.toOwnedSlice(allocator);
+    }
+
+    if (!std.unicode.utf8ValidateSlice(str) or !std.unicode.utf8ValidateSlice(sep)) {
+        const sep_len = utf16.lengthUtf16(sep);
+        var cursor: units.Cursor = .{ .data = str };
+        var part: units.Builder = .{ .allocator = allocator };
+        defer part.deinit();
+        while (cursor.offset < str.len or cursor.pending != null) {
+            if (units.matches(cursor, sep)) {
+                try appendAllocated(&result, allocator, try part.finish());
+                if (limit) |lim| if (result.items.len >= lim) return result.toOwnedSlice(allocator);
+                cursor.skip(sep_len);
+            } else try part.appendUnit(cursor.next().?);
+        }
+        try appendAllocated(&result, allocator, try part.finish());
         return result.toOwnedSlice(allocator);
     }
 
@@ -129,7 +143,7 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
         {
             // Found separator - add substring before it
             const substring = try allocator.dupe(u8, str[start_pos..search_pos]);
-            try result.append(allocator, substring);
+            try appendAllocated(&result, allocator, substring);
 
             // Move past the separator
             search_pos += sep.len;
@@ -142,7 +156,7 @@ pub fn split(allocator: Allocator, str: []const u8, separator: ?[]const u8, limi
     // Add remaining substring if we haven't hit the limit
     if (limit == null or result.items.len < limit.?) {
         const substring = try allocator.dupe(u8, str[start_pos..]);
-        try result.append(allocator, substring);
+        try appendAllocated(&result, allocator, substring);
     }
 
     return result.toOwnedSlice(allocator);
@@ -362,4 +376,9 @@ test "split - empty separator with a truncated trailing sequence emits it as one
     try std.testing.expectEqual(@as(usize, 2), result.len);
     try std.testing.expectEqualStrings("a", result[0]);
     try std.testing.expectEqualStrings("\xC3", result[1]);
+}
+
+fn appendAllocated(result: *std.ArrayList([]u8), allocator: Allocator, data: []u8) !void {
+    errdefer allocator.free(data);
+    try result.append(allocator, data);
 }

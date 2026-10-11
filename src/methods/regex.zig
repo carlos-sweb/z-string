@@ -5,7 +5,7 @@ const zregex = @import("zregex");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.search(regexp)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.search
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.search
 ///
 /// Executes a search for a match between a regular expression and this string,
 /// returning the index of the first match in UTF-16 code units, or -1 if not found.
@@ -59,7 +59,7 @@ pub const MatchArray = struct {
 };
 
 /// String.prototype.match(regexp)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.match
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.match
 ///
 /// Retrieves the matches when matching a string against a regular expression.
 /// Returns an array of matches, or null if no match is found.
@@ -68,51 +68,18 @@ pub const MatchArray = struct {
 ///   match("hello world", "l+") -> MatchArray with "ll"
 ///   match("Price: $100", "\\d+") -> MatchArray with "100"
 pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?MatchArray {
-    // Compile the regex pattern
     var re = zregex.Regex.compile(allocator, pattern) catch return null;
     defer re.deinit();
-
-    // Find the first match
-    const match_result = re.find(str) catch return null;
-    if (match_result) |m| {
+    const found = re.find(str) catch return null;
+    if (found) |m| {
         defer m.deinit();
-
-        // Get the matched string
-        const matched_str = m.group(str);
-        const matched_copy = try allocator.dupe(u8, matched_str);
-
-        // Extract capture groups
-        var groups: std.ArrayList(?[]const u8) = .empty;
-        defer groups.deinit(allocator);
-
-        // Try to get up to 16 capture groups (zregex's limit)
-        var i: usize = 1;
-        while (i < 16) : (i += 1) {
-            if (m.getCapture(i, str)) |capture| {
-                const capture_copy = try allocator.dupe(u8, capture);
-                try groups.append(allocator, capture_copy);
-            } else {
-                try groups.append(allocator, null);
-            }
-        }
-
-        // Convert start position to UTF-16 index
-        const utf16_index = utf16.byteIndexToUtf16(str, m.start) catch 0;
-
-        return MatchArray{
-            .match = matched_copy,
-            .groups = try groups.toOwnedSlice(allocator),
-            .index = utf16_index,
-            .input = str,
-            .allocator = allocator,
-        };
+        return try copyLegacyMatch(allocator, str, m);
     }
-
     return null;
 }
 
 /// String.prototype.matchAll(regexp)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.matchall
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.matchall
 ///
 /// Returns an iterator of all results matching a string against a regular expression,
 /// including capturing groups.
@@ -120,60 +87,22 @@ pub fn match(allocator: Allocator, str: []const u8, pattern: []const u8) !?Match
 /// Examples:
 ///   matchAll("test test", "t") -> Array of 4 matches
 pub fn matchAll(allocator: Allocator, str: []const u8, pattern: []const u8) ![]MatchArray {
-    // Compile the regex pattern
-    var re = zregex.Regex.compile(allocator, pattern) catch {
-        // If compilation fails, return empty array
-        return try allocator.alloc(MatchArray, 0);
-    };
+    var re = zregex.Regex.compile(allocator, pattern) catch return allocator.alloc(MatchArray, 0);
     defer re.deinit();
-
-    // Find all matches
-    var match_results = re.findAll(str) catch {
-        return try allocator.alloc(MatchArray, 0);
-    };
+    var found = re.findAll(str) catch return allocator.alloc(MatchArray, 0);
     defer {
-        for (match_results.items) |m| {
-            m.deinit();
-        }
-        match_results.deinit(allocator);
+        for (found.items) |m| m.deinit();
+        found.deinit(allocator);
     }
-
-    // Convert to MatchArray format
-    var matches: std.ArrayList(MatchArray) = .empty;
-    defer matches.deinit(allocator);
-
-    for (match_results.items) |m| {
-        // Get the matched string
-        const matched_str = m.group(str);
-        const matched_copy = try allocator.dupe(u8, matched_str);
-
-        // Extract capture groups
-        var groups: std.ArrayList(?[]const u8) = .empty;
-        defer groups.deinit(allocator);
-
-        var i: usize = 1;
-        while (i < 16) : (i += 1) {
-            if (m.getCapture(i, str)) |capture| {
-                const capture_copy = try allocator.dupe(u8, capture);
-                try groups.append(allocator, capture_copy);
-            } else {
-                try groups.append(allocator, null);
-            }
-        }
-
-        // Convert start position to UTF-16 index
-        const utf16_index = utf16.byteIndexToUtf16(str, m.start) catch 0;
-
-        try matches.append(allocator, MatchArray{
-            .match = matched_copy,
-            .groups = try groups.toOwnedSlice(allocator),
-            .index = utf16_index,
-            .input = str,
-            .allocator = allocator,
-        });
+    var out: std.ArrayList(MatchArray) = .empty;
+    errdefer for (out.items) |m| m.deinit();
+    defer out.deinit(allocator);
+    for (found.items) |m| {
+        const copy = try copyLegacyMatch(allocator, str, m);
+        errdefer copy.deinit();
+        try out.append(allocator, copy);
     }
-
-    return try matches.toOwnedSlice(allocator);
+    return out.toOwnedSlice(allocator);
 }
 
 /// Free the result of matchAll
@@ -185,7 +114,7 @@ pub fn freeMatchAll(allocator: Allocator, matches: []MatchArray) void {
 }
 
 /// String.prototype.replace(searchValue, replaceValue)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replace
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.replace
 ///
 /// Returns a new string with the first match of a pattern replaced by a replacement.
 /// The pattern can be a string or a RegExp.
@@ -217,11 +146,11 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
             defer result.deinit(allocator);
 
             // Add everything before the match
-            try result.appendSlice(allocator,str[0..m.start]);
+            try result.appendSlice(allocator, str[0..m.start]);
             // Add replacement
-            try result.appendSlice(allocator,replacement);
+            try result.appendSlice(allocator, replacement);
             // Add everything after the match
-            try result.appendSlice(allocator,str[m.end..]);
+            try result.appendSlice(allocator, str[m.end..]);
 
             return try result.toOwnedSlice(allocator);
         }
@@ -232,9 +161,9 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
         var result: std.ArrayList(u8) = .empty;
         defer result.deinit(allocator);
 
-        try result.appendSlice(allocator,str[0..pos]);
-        try result.appendSlice(allocator,replacement);
-        try result.appendSlice(allocator,str[pos + pattern.len ..]);
+        try result.appendSlice(allocator, str[0..pos]);
+        try result.appendSlice(allocator, replacement);
+        try result.appendSlice(allocator, str[pos + pattern.len ..]);
 
         return try result.toOwnedSlice(allocator);
     }
@@ -244,7 +173,7 @@ pub fn replace(allocator: Allocator, str: []const u8, pattern: []const u8, repla
 }
 
 /// String.prototype.replaceAll(searchValue, replaceValue)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replaceall
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.replaceall
 ///
 /// Returns a new string with all matches of a pattern replaced by a replacement.
 /// The pattern can be a string or a RegExp.
@@ -285,13 +214,13 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
         var last_end: usize = 0;
         for (match_results.items) |m| {
             // Add everything between last match and this match
-            try result.appendSlice(allocator,str[last_end..m.start]);
+            try result.appendSlice(allocator, str[last_end..m.start]);
             // Add replacement
-            try result.appendSlice(allocator,replacement);
+            try result.appendSlice(allocator, replacement);
             last_end = m.end;
         }
         // Add remaining string
-        try result.appendSlice(allocator,str[last_end..]);
+        try result.appendSlice(allocator, str[last_end..]);
 
         return try result.toOwnedSlice(allocator);
     }
@@ -305,14 +234,14 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
         if (std.mem.indexOf(u8, str[pos..], pattern)) |offset| {
             const absolute_pos = pos + offset;
             // Add everything up to the match
-            try result.appendSlice(allocator,str[pos..absolute_pos]);
+            try result.appendSlice(allocator, str[pos..absolute_pos]);
             // Add replacement
-            try result.appendSlice(allocator,replacement);
+            try result.appendSlice(allocator, replacement);
             // Move past the match
             pos = absolute_pos + pattern.len;
         } else {
             // No more matches, add remaining string
-            try result.appendSlice(allocator,str[pos..]);
+            try result.appendSlice(allocator, str[pos..]);
             break;
         }
     }
@@ -325,7 +254,7 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
 /// separator can't share that name; same "takes a raw pattern, compiles
 /// it internally" convention as search/match/matchAll/replace/replaceAll
 /// above).
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.split
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.split
 ///
 /// Splits `str` wherever `pattern` matches, discarding the matched
 /// separators. An unparseable pattern or a pattern with no matches
@@ -340,44 +269,31 @@ pub fn replaceAll(allocator: Allocator, str: []const u8, pattern: []const u8, re
 ///   splitRegex("a1b2c3", "[0-9]+", null) -> ["a", "b", "c"]
 ///   splitRegex("one, two,three", ",\\s*", null) -> ["one", "two", "three"]
 pub fn splitRegex(allocator: Allocator, str: []const u8, pattern: []const u8, limit: ?usize) ![][]u8 {
-    var result: std.ArrayList([]u8) = .empty;
-    errdefer {
-        for (result.items) |item| allocator.free(item);
-        result.deinit(allocator);
-    }
-
-    if (limit != null and limit.? == 0) {
-        return result.toOwnedSlice(allocator);
-    }
-
-    var re = zregex.Regex.compile(allocator, pattern) catch {
-        try result.append(allocator, try allocator.dupe(u8, str));
-        return result.toOwnedSlice(allocator);
+    if (limit != null and limit.? == 0) return allocator.alloc([]u8, 0);
+    const compiled = @import("compiled_regex.zig");
+    var re = compiled.CompiledRegex.compile(allocator, pattern, "") catch |err| {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        return @import("split.zig").split(allocator, str, null, limit);
     };
     defer re.deinit();
-
-    var matches = re.findAll(str) catch {
-        try result.append(allocator, try allocator.dupe(u8, str));
-        return result.toOwnedSlice(allocator);
+    const parts = re.split(str, limit) catch |err| {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        return @import("split.zig").split(allocator, str, null, limit);
     };
-    defer {
-        for (matches.items) |m| m.deinit();
-        matches.deinit(allocator);
+    defer allocator.free(parts);
+    errdefer for (parts) |part| if (part) |bytes| allocator.free(bytes);
+    const out = try allocator.alloc([]u8, parts.len);
+    errdefer allocator.free(out);
+    var initialized: usize = 0;
+    errdefer for (parts[0..initialized], 0..) |part, i| {
+        if (part == null) allocator.free(out[i]);
+    };
+    for (parts, 0..) |part, i| {
+        // The legacy [][]u8 shape cannot represent an unmatched capture.
+        out[i] = part orelse try allocator.alloc(u8, 0);
+        initialized += 1;
     }
-
-    var last_end: usize = 0;
-    for (matches.items) |m| {
-        if (limit) |lim| {
-            if (result.items.len >= lim) break;
-        }
-        try result.append(allocator, try allocator.dupe(u8, str[last_end..m.start]));
-        last_end = m.end;
-    }
-    if (limit == null or result.items.len < limit.?) {
-        try result.append(allocator, try allocator.dupe(u8, str[last_end..]));
-    }
-
-    return result.toOwnedSlice(allocator);
+    return out;
 }
 
 // =============================================================================
@@ -522,4 +438,19 @@ test "splitRegex: invalid pattern falls back to the whole string" {
 
     try std.testing.expectEqual(@as(usize, 1), result.len);
     try std.testing.expectEqualStrings("hello", result[0]);
+}
+
+fn copyLegacyMatch(allocator: Allocator, str: []const u8, m: zregex.MatchResult) !MatchArray {
+    const matched = try allocator.dupe(u8, m.group(str));
+    errdefer allocator.free(matched);
+    const groups = try allocator.alloc(?[]const u8, 15);
+    @memset(groups, null);
+    errdefer {
+        for (groups) |g| if (g) |text| allocator.free(text);
+        allocator.free(groups);
+    }
+    for (groups, 1..) |*g, i| if (m.getCapture(i, str)) |text| {
+        g.* = try allocator.dupe(u8, text);
+    };
+    return .{ .match = matched, .groups = groups, .index = utf16.byteIndexToUtf16(str, m.start) catch 0, .input = str, .allocator = allocator };
 }

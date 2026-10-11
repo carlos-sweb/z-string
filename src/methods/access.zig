@@ -1,9 +1,10 @@
+const units = @import("../core/units.zig");
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.charAt(index)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.charat
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.charat
 ///
 /// Returns a new string consisting of the single UTF-16 code unit at the given index.
 /// If index is out of bounds, returns an empty string.
@@ -89,7 +90,7 @@ pub fn extractCodeUnit(allocator: Allocator, str: []const u8, byte_idx: usize, i
 }
 
 /// String.prototype.at(index)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.at
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.at
 ///
 /// Returns a new string consisting of the single UTF-16 code unit at the given index.
 /// Supports negative indexing (counts from the end).
@@ -101,6 +102,7 @@ pub fn extractCodeUnit(allocator: Allocator, str: []const u8, byte_idx: usize, i
 ///   at("hello", -5) -> "h"
 ///   at("hello", 10) -> null
 pub fn at(allocator: Allocator, str: []const u8, index: isize) !?[]u8 {
+    if (index == std.math.minInt(isize)) return null;
     // Positive/zero index: same reasoning as charAt — utf16IndexToByte
     // already scans forward and reports out-of-bounds itself, no separate
     // length pass needed first.
@@ -123,7 +125,7 @@ pub fn at(allocator: Allocator, str: []const u8, index: isize) !?[]u8 {
 }
 
 /// String.prototype.charCodeAt(index)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.charcodeat
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.charcodeat
 ///
 /// Returns the UTF-16 code unit at the given index.
 /// If index is out of bounds, returns null (represents NaN in JS).
@@ -149,7 +151,7 @@ pub fn charCodeAt(str: []const u8, index: isize) ?u16 {
 }
 
 /// String.prototype.codePointAt(index)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.codepointat
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.codepointat
 ///
 /// Returns the Unicode code point at the given index.
 /// Unlike charCodeAt, this correctly handles surrogate pairs.
@@ -163,56 +165,18 @@ pub fn charCodeAt(str: []const u8, index: isize) ?u16 {
 ///   codePointAt("😀", 1) -> 56832 (0xDE00, low surrogate - not a pair start)
 ///   codePointAt("hello", 10) -> null
 pub fn codePointAt(str: []const u8, index: isize) ?u21 {
-    // Negative indices are out of bounds
-    if (index < 0) {
-        return null;
-    }
-    const idx: usize = @intCast(index);
-
-    // utf16IndexToBytePos already reports out-of-bounds itself, no
-    // separate lengthUtf16 pass needed first.
-    const pos = utf16.utf16IndexToBytePos(str, idx) catch {
-        return null;
-    };
-
-    if (pos.byte_index >= str.len) {
-        return null;
-    }
-
-    // Real spec: codePointAt at the LOW-surrogate half of a pair
-    // returns just that surrogate's own value, not the combined
-    // astral codepoint -- codeUnitAt already computes exactly this
-    // (and also already handles an existing lone WTF-8 surrogate
-    // stored at this position, widening to u21 either way).
-    if (pos.is_low_surrogate) {
-        return @as(u21, utf16.codeUnitAt(str, idx) catch return null);
-    }
-
-    // Get the UTF-8 sequence length
-    const cp_len = std.unicode.utf8ByteSequenceLength(str[pos.byte_index]) catch {
-        // Invalid UTF-8
-        return null;
-    };
-
-    if (pos.byte_index + cp_len > str.len) {
-        // Incomplete sequence
-        return null;
-    }
-
-    // Decode the UTF-8 sequence to get the full code point.
-    const codepoint = std.unicode.utf8Decode(str[pos.byte_index .. pos.byte_index + cp_len]) catch {
-        // An existing lone WTF-8 surrogate already at this position
-        // (not the high half of a pair, since is_low_surrogate is
-        // false here) -- its own value, same as codeUnitAt.
-        if (cp_len == 3) {
-            if (utf16.decodeSurrogateWtf8(str[pos.byte_index .. pos.byte_index + 3])) |surrogate| {
-                return surrogate;
-            }
+    if (index < 0) return null;
+    var cursor: units.Cursor = .{ .data = str };
+    cursor.skip(@intCast(index));
+    const unit = cursor.next() orelse return null;
+    if (!unit.valid) return null;
+    if (unit.value >= 0xd800 and unit.value <= 0xdbff) {
+        if (cursor.next()) |low| {
+            if (low.valid and low.value >= 0xdc00 and low.value <= 0xdfff)
+                return 0x10000 + (@as(u21, unit.value - 0xd800) << 10) + low.value - 0xdc00;
         }
-        return null;
-    };
-
-    return codepoint;
+    }
+    return unit.value;
 }
 
 // ============================================================================

@@ -1,3 +1,4 @@
+const units = @import("units.zig");
 const std = @import("std");
 const utf16 = @import("utf16.zig");
 const access = @import("../methods/access.zig");
@@ -9,19 +10,20 @@ const split_methods = @import("../methods/split.zig");
 const case = @import("../methods/case.zig");
 const utility = @import("../methods/utility.zig");
 const regex_methods = @import("../methods/regex.zig");
+const compiled_regex = @import("../methods/compiled_regex.zig");
 
 const Allocator = std.mem.Allocator;
 
 /// ZString - ECMAScript-compatible string implementation
 ///
-/// This struct wraps a UTF-8 string slice and provides an API that matches
+/// This struct wraps a UTF-8/WTF-8 string slice and provides an API that matches
 /// JavaScript's String behavior, including UTF-16-based indexing and length.
 ///
 /// The struct can be in two modes:
 /// - Borrowed: Just wraps an existing string slice (allocator = null)
 /// - Owned: Has allocated memory that must be freed (allocator != null)
 pub const ZString = struct {
-    /// Internal UTF-8 data
+    /// Internal UTF-8/WTF-8 data
     data: []const u8,
 
     /// Allocator if this is an owned string, null if borrowed
@@ -74,7 +76,7 @@ pub const ZString = struct {
     }
 
     /// String.fromCharCode(...codeUnits)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.fromcharcode
+    /// Spec: https://tc39.es/ecma262/#sec-string.fromcharcode
     ///
     /// Builds a string from a sequence of UTF-16 code units, combining
     /// surrogate pairs into their real character automatically (Zig has
@@ -85,8 +87,8 @@ pub const ZString = struct {
     /// Narrowing: an UNPAIRED surrogate (e.g. a single 0xD800 with no
     /// matching low surrogate right after it) returns an error instead
     /// of silently building an ill-formed string the way real JS does --
-    /// see WELL_FORMED_STRINGS.md for why z-string's UTF-8 storage can't
-    /// represent that case at all.
+    /// the legacy contract is preserved. Use fromCharCodeEcma to retain
+    /// isolated surrogate units in WTF-8.
     ///
     /// Example:
     ///   fromCharCode(allocator, &.{ 65, 66, 67 }) -> owned ZString "ABC"
@@ -96,7 +98,7 @@ pub const ZString = struct {
     }
 
     /// String.fromCodePoint(...codePoints)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.fromcodepoint
+    /// Spec: https://tc39.es/ecma262/#sec-string.fromcodepoint
     ///
     /// Builds a string from a sequence of full Unicode code points (not
     /// UTF-16 code units -- each argument here is already a whole
@@ -107,8 +109,7 @@ pub const ZString = struct {
     /// 0..0x10FFFF -- it does NOT reject a bare surrogate value passed
     /// directly (`String.fromCodePoint(0xD800)` succeeds in real JS,
     /// producing the same lone-surrogate string fromCharCode would).
-    /// z-string is stricter here for the same storage reason as
-    /// fromCharCode: error.Utf8CannotEncodeSurrogateHalf on a surrogate
+    /// the legacy factory remains stricter: error.Utf8CannotEncodeSurrogateHalf on a surrogate
     /// value, error.CodepointTooLarge above 0x10FFFF.
     ///
     /// Example:
@@ -124,6 +125,54 @@ pub const ZString = struct {
         }
 
         return fromOwned(allocator, try list.toOwnedSlice(allocator));
+    }
+
+    /// ECMA-262 factories accepting all UTF-16 units, including isolated surrogates.
+    /// Returns an owned ZString; release with deinit(). Legacy factories remain strict.
+    pub fn fromCharCodeEcma(allocator: Allocator, code_units: []const u16) !ZString {
+        var out: units.Builder = .{ .allocator = allocator };
+        defer out.deinit();
+        for (code_units) |unit| try out.append(unit);
+        return fromOwned(allocator, try out.finish());
+    }
+
+    pub fn fromCodePointEcma(allocator: Allocator, code_points: []const u21) !ZString {
+        var out: units.Builder = .{ .allocator = allocator };
+        defer out.deinit();
+        for (code_points) |cp| {
+            if (cp > 0x10ffff) return error.CodepointTooLarge;
+            try out.append(cp);
+        }
+        return fromOwned(allocator, try out.finish());
+    }
+
+    /// Borrowed, allocation-free code-point iterator. Input must outlive the iterator.
+    pub fn iterator(self: ZString) units.Iterator {
+        return .{ .cursor = .{ .data = self.data } };
+    }
+
+    /// Returns an owned repaired string. Release with allocator.free().
+    pub fn toWellFormed(self: ZString, allocator: Allocator) ![]u8 {
+        return utility.toWellFormed(allocator, self.data);
+    }
+
+    pub fn normalizeStrict(self: ZString, allocator: Allocator, form: ?[]const u8) ![]u8 {
+        return utility.normalizeStrict(allocator, self.data, form);
+    }
+
+    /// Interleaves raw segments and substitutions without interpreting escapes.
+    /// Returns owned bytes; release with allocator.free().
+    pub fn raw(allocator: Allocator, segments: []const []const u8, substitutions: []const []const u8) ![]u8 {
+        return utility.raw(allocator, segments, substitutions);
+    }
+
+    /// Literal search with ECMA-262 substitution templates. Returns owned bytes.
+    pub fn replaceLiteral(self: ZString, allocator: Allocator, needle: []const u8, replacement: []const u8) ![]u8 {
+        return compiled_regex.replaceLiteral(allocator, self.data, needle, replacement);
+    }
+
+    pub fn replaceAllLiteral(self: ZString, allocator: Allocator, needle: []const u8, replacement: []const u8) ![]u8 {
+        return compiled_regex.replaceAllLiteral(allocator, self.data, needle, replacement);
     }
 
     /// Frees the memory if this is an owned string
@@ -145,7 +194,7 @@ pub const ZString = struct {
     ///   ZString.init("😀").length() -> 2 (surrogate pair)
     ///   ZString.init("café").length() -> 4
     ///
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.length
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.length
     pub fn length(self: *ZString) usize {
         if (self.cached_utf16_length) |len| {
             return len;
@@ -177,9 +226,17 @@ pub const ZString = struct {
         return self.allocator != null;
     }
 
-    /// Validates that the string contains valid UTF-8
+    /// Checks pairing of UTF-16 surrogates, including WTF-8 pairs.
     pub fn isWellFormed(self: ZString) bool {
-        return std.unicode.utf8ValidateSlice(self.data);
+        var cursor: units.Cursor = .{ .data = self.data };
+        while (cursor.next()) |unit| {
+            if (!unit.valid) return false;
+            if (unit.value >= 0xd800 and unit.value <= 0xdbff) {
+                const low = cursor.next() orelse return false;
+                if (!low.valid or low.value < 0xdc00 or low.value > 0xdfff) return false;
+            } else if (unit.value >= 0xdc00 and unit.value <= 0xdfff) return false;
+        }
+        return true;
     }
 
     /// Clones the string (always creates an owned copy)
@@ -189,12 +246,12 @@ pub const ZString = struct {
 
     /// Compares two strings for equality (byte-wise)
     pub fn eql(self: ZString, other: ZString) bool {
-        return std.mem.eql(u8, self.data, other.data);
+        return units.eql(self.data, other.data);
     }
 
     /// Compares with a string slice
     pub fn eqlSlice(self: ZString, other: []const u8) bool {
-        return std.mem.eql(u8, self.data, other);
+        return units.eql(self.data, other);
     }
 
     // ========================================================================
@@ -202,7 +259,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.charAt(index)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.charat
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.charat
     ///
     /// Returns a new string consisting of the single UTF-16 code unit at the given index.
     /// If index is out of bounds, returns an empty string.
@@ -213,7 +270,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.at(index)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.at
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.at
     ///
     /// Returns a new string consisting of the single UTF-16 code unit at the given index.
     /// Supports negative indexing (counts from the end).
@@ -225,7 +282,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.charCodeAt(index)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.charcodeat
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.charcodeat
     ///
     /// Returns the UTF-16 code unit at the given index.
     /// If index is out of bounds, returns null (represents NaN in JS).
@@ -234,7 +291,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.codePointAt(index)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.codepointat
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.codepointat
     ///
     /// Returns the Unicode code point at the given index.
     /// Unlike charCodeAt, this correctly handles surrogate pairs.
@@ -247,7 +304,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.indexOf(searchString, position)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.indexof
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.indexof
     ///
     /// Returns the index of the first occurrence of searchString, or -1 if not found.
     /// Starts searching at position (default 0).
@@ -256,7 +313,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.lastIndexOf(searchString, position)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.lastindexof
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.lastindexof
     ///
     /// Returns the index of the last occurrence of searchString, or -1 if not found.
     /// Searches backwards from position (default end of string).
@@ -265,7 +322,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.includes(searchString, position)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.includes
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.includes
     ///
     /// Determines whether searchString appears within this string.
     /// Starts searching at position (default 0).
@@ -274,7 +331,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.startsWith(searchString, position)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.startswith
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.startswith
     ///
     /// Determines whether this string begins with searchString.
     /// Optionally starts checking at position (default 0).
@@ -283,7 +340,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.endsWith(searchString, endPosition)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.endswith
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.endswith
     ///
     /// Determines whether this string ends with searchString.
     /// Treats the string as if it were only endPosition characters long (default full length).
@@ -296,7 +353,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.slice(start, end)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.slice
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.slice
     ///
     /// Extracts a section of this string and returns it as a new string.
     /// Supports negative indices (count from end).
@@ -307,7 +364,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.substring(start, end)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.substring
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.substring
     ///
     /// Returns the part of the string between start and end indices.
     /// Negative indices are treated as 0. If start > end, they are swapped.
@@ -318,7 +375,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.concat(...strings)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.concat
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.concat
     ///
     /// Combines the text of one or more strings and returns a new string.
     ///
@@ -328,7 +385,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.repeat(count)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.repeat
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.repeat
     ///
     /// Constructs and returns a new string containing the specified number
     /// of copies of this string concatenated together.
@@ -343,7 +400,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.padStart(targetLength, padString)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.padstart
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.padstart
     ///
     /// Pads the current string with another string (multiple times, if needed)
     /// until the resulting string reaches the given length.
@@ -355,7 +412,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.padEnd(targetLength, padString)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.padend
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.padend
     ///
     /// Pads the current string with another string (multiple times, if needed)
     /// until the resulting string reaches the given length.
@@ -371,7 +428,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.trim()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trim
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.trim
     ///
     /// Removes whitespace from both ends of a string.
     /// Returns a new string without modifying the original.
@@ -382,7 +439,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.trimStart() / trimLeft()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trimstart
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.trimstart
     ///
     /// Removes whitespace from the beginning of a string.
     ///
@@ -395,7 +452,7 @@ pub const ZString = struct {
     pub const trimLeft = trimStart;
 
     /// String.prototype.trimEnd() / trimRight()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.trimend
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.trimend
     ///
     /// Removes whitespace from the end of a string.
     ///
@@ -412,7 +469,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.split(separator, limit)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.split
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.split
     ///
     /// Splits a String object into an array of strings by separating the string
     /// into substrings, using a specified separator string to determine where
@@ -442,7 +499,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.toLowerCase()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolowercase
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.tolowercase
     ///
     /// Returns the calling string value converted to lower case.
     ///
@@ -452,7 +509,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.toUpperCase()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.touppercase
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.touppercase
     ///
     /// Returns the calling string value converted to upper case.
     ///
@@ -462,7 +519,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.toLocaleLowerCase(locale)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolocalelowercase
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.tolocalelowercase
     ///
     /// Returns the calling string value converted to lower case according to
     /// locale-specific case mappings.
@@ -475,7 +532,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.toLocaleUpperCase(locale)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolocaleuppercase
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.tolocaleuppercase
     ///
     /// Returns the calling string value converted to upper case according to
     /// locale-specific case mappings.
@@ -492,7 +549,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.toString()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tostring
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.tostring
     ///
     /// Returns the string value.
     ///
@@ -502,7 +559,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.valueOf()
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.valueof
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.valueof
     ///
     /// Returns the primitive value of a String object.
     ///
@@ -512,7 +569,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.localeCompare(that, locales, options)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.localecompare
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.localecompare
     ///
     /// Returns a number indicating whether a reference string comes before,
     /// after, or is the same as the given string in sort order.
@@ -525,13 +582,13 @@ pub const ZString = struct {
     }
 
     /// String.prototype.normalize(form)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.normalize
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.normalize
     ///
     /// Returns the Unicode Normalization Form of the string.
     ///
     /// Supported forms: "NFC" (default), "NFD", "NFKC", "NFKD"
     ///
-    /// Note: Placeholder implementation. Full Unicode normalization not yet implemented.
+    /// Complete Unicode 17.0.0 normalization. Invalid forms retain the legacy copy fallback.
     ///
     /// The returned string must be freed by the caller.
     pub fn normalize(self: ZString, allocator: Allocator, form: ?[]const u8) ![]u8 {
@@ -543,7 +600,7 @@ pub const ZString = struct {
     // ========================================================================
 
     /// String.prototype.search(regexp)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.search
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.search
     ///
     /// Executes a search for a match between a regular expression and this string,
     /// returning the index of the first match, or -1 if not found.
@@ -554,7 +611,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.match(regexp)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.match
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.match
     ///
     /// Retrieves the matches when matching a string against a regular expression.
     /// Returns an array of matches, or null if no match is found.
@@ -567,7 +624,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.matchAll(regexp)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.matchall
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.matchall
     ///
     /// Returns an iterator of all results matching a string against a regular expression,
     /// including capturing groups.
@@ -585,7 +642,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.replace(searchValue, replaceValue)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replace
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.replace
     ///
     /// Returns a new string with the first match of a pattern replaced by a replacement.
     /// The pattern can be a string or a RegExp.
@@ -598,7 +655,7 @@ pub const ZString = struct {
     }
 
     /// String.prototype.replaceAll(searchValue, replaceValue)
-    /// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.replaceall
+    /// Spec: https://tc39.es/ecma262/#sec-string.prototype.replaceall
     ///
     /// Returns a new string with all matches of a pattern replaced by a replacement.
     /// The pattern can be a string or a RegExp.

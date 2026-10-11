@@ -1,213 +1,73 @@
 const std = @import("std");
+const units = @import("../core/units.zig");
+const unicode = @import("../unicode/algorithms.zig");
+const data = @import("../unicode/data.zig");
 const Allocator = std.mem.Allocator;
 
-/// String.prototype.toLowerCase()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolowercase
-///
-/// Returns the calling string value converted to lower case.
-/// For full Unicode case mapping, this implementation uses Unicode case folding rules.
-///
-/// Examples:
-///   toLowerCase("HELLO") -> "hello"
-///   toLowerCase("Hello World") -> "hello world"
-///   toLowerCase("CAFÉ") -> "café"
-///
-/// The returned string must be freed by the caller.
 pub fn toLowerCase(allocator: Allocator, str: []const u8) ![]u8 {
-    // Allocate buffer for result (worst case: same size)
-    // Note: Some Unicode transformations can change byte length
-    var result: std.ArrayList(u8) = .empty;
-    errdefer result.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < str.len) {
-        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch {
-            // Invalid UTF-8, copy as-is
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        };
-
-        if (i + cp_len > str.len) {
-            // Incomplete sequence at end, copy as-is
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        }
-
-        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch {
-            // Invalid UTF-8, copy as-is
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        };
-
-        // Convert to lowercase
-        const lower = unicodeLower(codepoint);
-
-        // Encode back to UTF-8
-        var buf: [4]u8 = undefined;
-        const encoded_len = std.unicode.utf8Encode(lower, &buf) catch {
-            // Fallback: copy original
-            try result.appendSlice(allocator, str[i .. i + cp_len]);
-            i += cp_len;
-            continue;
-        };
-
-        try result.appendSlice(allocator, buf[0..encoded_len]);
-        i += cp_len;
-    }
-
-    return result.toOwnedSlice(allocator);
+    return convert(allocator, str, false);
 }
-
-/// String.prototype.toUpperCase()
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.touppercase
-///
-/// Returns the calling string value converted to upper case.
-/// For full Unicode case mapping, this implementation uses Unicode case folding rules.
-///
-/// Examples:
-///   toUpperCase("hello") -> "HELLO"
-///   toUpperCase("Hello World") -> "HELLO WORLD"
-///   toUpperCase("café") -> "CAFÉ"
-///
-/// The returned string must be freed by the caller.
 pub fn toUpperCase(allocator: Allocator, str: []const u8) ![]u8 {
-    var result: std.ArrayList(u8) = .empty;
-    errdefer result.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < str.len) {
-        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch {
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        };
-
-        if (i + cp_len > str.len) {
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        }
-
-        const codepoint = std.unicode.utf8Decode(str[i .. i + cp_len]) catch {
-            try result.append(allocator, str[i]);
-            i += 1;
-            continue;
-        };
-
-        // Convert to uppercase
-        const upper = unicodeUpper(codepoint);
-
-        // Encode back to UTF-8
-        var buf: [4]u8 = undefined;
-        const encoded_len = std.unicode.utf8Encode(upper, &buf) catch {
-            try result.appendSlice(allocator, str[i .. i + cp_len]);
-            i += cp_len;
-            continue;
-        };
-
-        try result.appendSlice(allocator, buf[0..encoded_len]);
-        i += cp_len;
-    }
-
-    return result.toOwnedSlice(allocator);
+    return convert(allocator, str, true);
 }
 
-/// String.prototype.toLocaleLowerCase(locale)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolocalelowercase
-///
-/// Returns the calling string value converted to lower case according to locale-specific
-/// case mappings.
-///
-/// Note: This implementation currently uses the same logic as toLowerCase().
-/// Full locale-specific case mapping (e.g., Turkish İ -> i) is not yet implemented.
-///
-/// The returned string must be freed by the caller.
+/// ECMA-262 basic profile: fixed root host locale. Optional parameter positions
+/// remain reserved for ECMA-402; this API does not advertise ECMA-402 support.
 pub fn toLocaleLowerCase(allocator: Allocator, str: []const u8, _locale: ?[]const u8) ![]u8 {
-    // TODO: Implement locale-specific case mapping
-    // For now, use standard toLowerCase
     _ = _locale;
     return toLowerCase(allocator, str);
 }
-
-/// String.prototype.toLocaleUpperCase(locale)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.tolocaleuppercase
-///
-/// Returns the calling string value converted to upper case according to locale-specific
-/// case mappings.
-///
-/// Note: This implementation currently uses the same logic as toUpperCase().
-/// Full locale-specific case mapping (e.g., Turkish i -> İ) is not yet implemented.
-///
-/// The returned string must be freed by the caller.
 pub fn toLocaleUpperCase(allocator: Allocator, str: []const u8, _locale: ?[]const u8) ![]u8 {
-    // TODO: Implement locale-specific case mapping
     _ = _locale;
     return toUpperCase(allocator, str);
 }
 
-// ============================================================================
-// Unicode Case Mapping
-// ============================================================================
-
-/// Simple Unicode lowercase mapping
-/// This covers the most common cases. Full Unicode case mapping would require
-/// a complete case mapping table from the Unicode Character Database.
-fn unicodeLower(cp: u21) u21 {
-    // ASCII range
-    if (cp >= 'A' and cp <= 'Z') {
-        return cp + 32;
+fn followingCased(cursor: units.Cursor) bool {
+    var iterator: units.Iterator = .{ .cursor = cursor };
+    while (iterator.next()) |cp| {
+        if (unicode.isCaseIgnorable(cp)) continue;
+        return unicode.isCased(cp);
     }
-
-    // Latin-1 Supplement (0x00C0 - 0x00FF)
-    if (cp >= 0x00C0 and cp <= 0x00DE) {
-        // Skip multiply sign (0x00D7)
-        if (cp == 0x00D7) return cp;
-        return cp + 32;
-    }
-
-    // Common Unicode uppercase letters
-    // This is a simplified mapping. A complete implementation would use
-    // the full Unicode case mapping tables.
-    return switch (cp) {
-        // Greek uppercase
-        0x0391...0x03A9 => cp + 32, // Α-Ω -> α-ω
-        0x0410...0x042F => cp + 32, // Cyrillic А-Я -> а-я
-
-        // Add more mappings as needed
-        else => cp,
-    };
+    return false;
 }
 
-/// Simple Unicode uppercase mapping
-fn unicodeUpper(cp: u21) u21 {
-    // ASCII range
-    if (cp >= 'a' and cp <= 'z') {
-        return cp - 32;
+fn convert(allocator: Allocator, str: []const u8, upper: bool) ![]u8 {
+    if (units.isAscii(str)) {
+        const out = try allocator.dupe(u8, str);
+        for (out) |*byte| byte.* = if (upper) std.ascii.toUpper(byte.*) else std.ascii.toLower(byte.*);
+        return out;
     }
-
-    // Latin-1 Supplement (0x00E0 - 0x00FF)
-    if (cp >= 0x00E0 and cp <= 0x00FE) {
-        // Skip division sign (0x00F7)
-        if (cp == 0x00F7) return cp;
-        return cp - 32;
+    var out: units.Builder = .{ .allocator = allocator };
+    defer out.deinit();
+    try out.list.ensureTotalCapacity(allocator, str.len);
+    var cursor: units.Cursor = .{ .data = str };
+    var preceded_cased = false;
+    while (cursor.next()) |unit| {
+        if (!unit.valid) {
+            try out.appendUnit(unit);
+            preceded_cased = false;
+            continue;
+        }
+        var cp: u21 = unit.value;
+        if (cp >= 0xd800 and cp <= 0xdbff) {
+            var peek = cursor;
+            if (peek.next()) |low| {
+                if (low.valid and low.value >= 0xdc00 and low.value <= 0xdfff) {
+                    cp = 0x10000 + ((cp - 0xd800) << 10) + low.value - 0xdc00;
+                    cursor = peek;
+                }
+            }
+        }
+        if (!upper and cp == 0x03a3 and preceded_cased and !followingCased(cursor)) {
+            try out.append(0x03c2);
+        } else if (unicode.lookup(data.Case, &data.cases, cp)) |mapping| {
+            const sequence = if (upper) mapping.upper[0..mapping.upper_len] else mapping.lower[0..mapping.lower_len];
+            for (sequence) |mapped| try out.append(mapped);
+        } else try out.append(cp);
+        if (!unicode.isCaseIgnorable(cp)) preceded_cased = unicode.isCased(cp);
     }
-
-    // Common Unicode lowercase letters
-    return switch (cp) {
-        // Greek lowercase
-        0x03B1...0x03C9 => cp - 32, // α-ω -> Α-Ω
-        0x0430...0x044F => cp - 32, // Cyrillic а-я -> А-Я
-
-        else => cp,
-    };
+    return out.finish();
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 test "toLowerCase - ASCII" {
     const allocator = std.testing.allocator;

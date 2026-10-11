@@ -1,9 +1,10 @@
+const units = @import("../core/units.zig");
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
 const Allocator = std.mem.Allocator;
 
 /// String.prototype.padStart(targetLength, padString)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.padstart
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.padstart
 ///
 /// Pads the current string with another string (multiple times, if needed)
 /// until the resulting string reaches the given length.
@@ -15,78 +16,40 @@ const Allocator = std.mem.Allocator;
 ///   padStart("abc", 6, "123456") -> "123abc"
 ///   padStart("abc", 2, "0") -> "abc" (no change if already long enough)
 pub fn padStart(allocator: Allocator, str: []const u8, targetLength: isize, padString: ?[]const u8) ![]u8 {
-    if (targetLength < 0) {
-        // Negative target length, return copy of original
-        return allocator.dupe(u8, str);
-    }
-
-    const target_len: usize = @intCast(targetLength);
-    const str_len = utf16.lengthUtf16(str);
-
-    // If already at or beyond target length, return copy
-    if (str_len >= target_len) {
-        return allocator.dupe(u8, str);
-    }
-
-    // Determine padding string (default is space)
+    if (targetLength <= 0) return allocator.dupe(u8, str);
+    const target: usize = @intCast(targetLength);
+    const length = utf16.lengthUtf16(str);
     const pad = padString orelse " ";
+    if (length >= target or pad.len == 0) return allocator.dupe(u8, str);
+    const pad_length = utf16.lengthUtf16(pad);
+    if (pad_length == 0) return allocator.dupe(u8, str);
+    const needed = target - length;
+    const repeats = needed / pad_length;
+    const partial = needed % pad_length;
+    const multiplication = @mulWithOverflow(repeats, pad.len);
+    if (multiplication[1] != 0) return error.OutOfMemory;
+    const addition = @addWithOverflow(multiplication[0], str.len);
+    if (addition[1] != 0 or (partial != 0 and addition[0] > std.math.maxInt(usize) - pad.len)) return error.OutOfMemory;
+    var out: units.Builder = .{ .allocator = allocator };
+    defer out.deinit();
+    const valid_pad = std.unicode.utf8ValidateSlice(pad);
+    const partial_bytes: usize = if (partial == 0) 0 else if (valid_pad) blk: {
+        const boundary = utf16.utf16IndexToBytePos(pad, partial) catch unreachable;
+        break :blk boundary.byte_index + (if (boundary.is_low_surrogate) @as(usize, 3) else 0);
+    } else pad.len;
+    try out.list.ensureTotalCapacityPrecise(allocator, addition[0] + partial_bytes);
 
-    // Empty pad string means no padding
-    if (pad.len == 0) {
-        return allocator.dupe(u8, str);
+    for (0..repeats) |_| {
+        if (valid_pad) try out.list.appendSlice(allocator, pad) else try out.appendString(pad);
     }
-
-    const pad_len_utf16 = utf16.lengthUtf16(pad);
-    if (pad_len_utf16 == 0) {
-        return allocator.dupe(u8, str);
-    }
-
-    // Calculate how many UTF-16 code units we need to add
-    const needed_len = target_len - str_len;
-
-    // Calculate how many times to repeat the pad string
-    const full_repeats = needed_len / pad_len_utf16;
-    const partial_len = needed_len % pad_len_utf16;
-
-    // Calculate total byte size
-    const total_byte_len = (full_repeats * pad.len) + str.len;
-
-    // Add bytes for partial padding if needed
-    var result_len = total_byte_len;
-    if (partial_len > 0) {
-        // Convert partial UTF-16 length to bytes
-        const partial_byte_len = utf16.utf16IndexToByte(pad, partial_len) catch pad.len;
-        result_len += partial_byte_len;
-    }
-
-    // Allocate result buffer
-    var result = try allocator.alloc(u8, result_len);
-    errdefer allocator.free(result);
-
-    var pos: usize = 0;
-
-    // Add full repetitions of pad string
-    var i: usize = 0;
-    while (i < full_repeats) : (i += 1) {
-        @memcpy(result[pos .. pos + pad.len], pad);
-        pos += pad.len;
-    }
-
-    // Add partial pad string if needed
-    if (partial_len > 0) {
-        const partial_byte_len = utf16.utf16IndexToByte(pad, partial_len) catch pad.len;
-        @memcpy(result[pos .. pos + partial_byte_len], pad[0..partial_byte_len]);
-        pos += partial_byte_len;
-    }
-
-    // Add original string
-    @memcpy(result[pos .. pos + str.len], str);
-
-    return result;
+    var cursor: units.Cursor = .{ .data = pad };
+    for (0..partial) |_| try out.appendUnit(cursor.next().?);
+    try out.appendString(str);
+    return out.finish();
 }
 
 /// String.prototype.padEnd(targetLength, padString)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.padend
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.padend
 ///
 /// Pads the current string with another string (multiple times, if needed)
 /// until the resulting string reaches the given length.
@@ -98,66 +61,36 @@ pub fn padStart(allocator: Allocator, str: []const u8, targetLength: isize, padS
 ///   padEnd("abc", 6, "123456") -> "abc123"
 ///   padEnd("abc", 2, "0") -> "abc" (no change if already long enough)
 pub fn padEnd(allocator: Allocator, str: []const u8, targetLength: isize, padString: ?[]const u8) ![]u8 {
-    if (targetLength < 0) {
-        return allocator.dupe(u8, str);
-    }
-
-    const target_len: usize = @intCast(targetLength);
-    const str_len = utf16.lengthUtf16(str);
-
-    // If already at or beyond target length, return copy
-    if (str_len >= target_len) {
-        return allocator.dupe(u8, str);
-    }
-
-    // Determine padding string (default is space)
+    if (targetLength <= 0) return allocator.dupe(u8, str);
+    const target: usize = @intCast(targetLength);
+    const length = utf16.lengthUtf16(str);
     const pad = padString orelse " ";
-
-    if (pad.len == 0) {
-        return allocator.dupe(u8, str);
+    if (length >= target or pad.len == 0) return allocator.dupe(u8, str);
+    const pad_length = utf16.lengthUtf16(pad);
+    if (pad_length == 0) return allocator.dupe(u8, str);
+    const needed = target - length;
+    const repeats = needed / pad_length;
+    const partial = needed % pad_length;
+    const multiplication = @mulWithOverflow(repeats, pad.len);
+    if (multiplication[1] != 0) return error.OutOfMemory;
+    const addition = @addWithOverflow(multiplication[0], str.len);
+    if (addition[1] != 0 or (partial != 0 and addition[0] > std.math.maxInt(usize) - pad.len)) return error.OutOfMemory;
+    var out: units.Builder = .{ .allocator = allocator };
+    defer out.deinit();
+    const valid_pad = std.unicode.utf8ValidateSlice(pad);
+    const partial_bytes: usize = if (partial == 0) 0 else if (valid_pad) blk: {
+        const boundary = utf16.utf16IndexToBytePos(pad, partial) catch unreachable;
+        break :blk boundary.byte_index + (if (boundary.is_low_surrogate) @as(usize, 3) else 0);
+    } else pad.len;
+    try out.list.ensureTotalCapacityPrecise(allocator, addition[0] + partial_bytes);
+    try out.appendString(str);
+    for (0..repeats) |_| {
+        if (valid_pad) try out.list.appendSlice(allocator, pad) else try out.appendString(pad);
     }
+    var cursor: units.Cursor = .{ .data = pad };
+    for (0..partial) |_| try out.appendUnit(cursor.next().?);
 
-    const pad_len_utf16 = utf16.lengthUtf16(pad);
-    if (pad_len_utf16 == 0) {
-        return allocator.dupe(u8, str);
-    }
-
-    // Calculate how many UTF-16 code units we need to add
-    const needed_len = target_len - str_len;
-
-    // Calculate how many times to repeat the pad string
-    const full_repeats = needed_len / pad_len_utf16;
-    const partial_len = needed_len % pad_len_utf16;
-
-    // Calculate total byte size
-    var result_len = str.len + (full_repeats * pad.len);
-    if (partial_len > 0) {
-        const partial_byte_len = utf16.utf16IndexToByte(pad, partial_len) catch pad.len;
-        result_len += partial_byte_len;
-    }
-
-    // Allocate result buffer
-    var result = try allocator.alloc(u8, result_len);
-    errdefer allocator.free(result);
-
-    // Add original string first
-    @memcpy(result[0..str.len], str);
-    var pos: usize = str.len;
-
-    // Add full repetitions of pad string
-    var i: usize = 0;
-    while (i < full_repeats) : (i += 1) {
-        @memcpy(result[pos .. pos + pad.len], pad);
-        pos += pad.len;
-    }
-
-    // Add partial pad string if needed
-    if (partial_len > 0) {
-        const partial_byte_len = utf16.utf16IndexToByte(pad, partial_len) catch pad.len;
-        @memcpy(result[pos .. pos + partial_byte_len], pad[0..partial_byte_len]);
-    }
-
-    return result;
+    return out.finish();
 }
 
 // ============================================================================

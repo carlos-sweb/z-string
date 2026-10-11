@@ -5,7 +5,7 @@
 //
 // Key features:
 // - UTF-16 code unit based indexing (matching JavaScript behavior)
-// - Full ECMAScript String API compatibility
+// - Typed ECMA-262 String operations; see the compatibility matrix for limits
 // - UTF-8 internal representation for memory efficiency
 // - Explicit memory management with Zig allocators
 
@@ -13,6 +13,8 @@ const std = @import("std");
 
 // Core exports
 pub const ZString = @import("core/string.zig").ZString;
+pub const unicode_version = @import("unicode/data.zig").version;
+pub const Iterator = @import("core/units.zig").Iterator;
 pub const utf16 = @import("core/utf16.zig");
 
 // Method modules
@@ -24,6 +26,11 @@ pub const trimming = @import("methods/trimming.zig");
 pub const split = @import("methods/split.zig");
 pub const case = @import("methods/case.zig");
 pub const utility = @import("methods/utility.zig");
+pub const regex = @import("methods/regex.zig");
+pub const compiled_regex = @import("methods/compiled_regex.zig");
+pub const CompiledRegex = compiled_regex.CompiledRegex;
+pub const DetailedMatch = compiled_regex.DetailedMatch;
+pub const PreparedSubject = compiled_regex.PreparedSubject;
 
 // Re-export common types
 pub const Allocator = std.mem.Allocator;
@@ -42,8 +49,8 @@ pub const ZStringError = error{
 // Version info
 pub const version = .{
     .major = 0,
-    .minor = 1,
-    .patch = 0,
+    .minor = 4,
+    .patch = 1,
 };
 
 // Tests - this runs all tests from submodules

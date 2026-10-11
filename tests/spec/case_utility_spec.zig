@@ -6,7 +6,7 @@ const zstring = @import("zstring");
 // ============================================================================
 
 test "spec - toLowerCase: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.tolowercase
+    // https://tc39.es/ecma262/#sec-string.prototype.tolowercase
     //
     // JavaScript behavior:
     // "HELLO".toLowerCase() -> "hello"
@@ -71,7 +71,7 @@ test "spec - toLowerCase: empty string" {
 }
 
 test "spec - toUpperCase: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.touppercase
+    // https://tc39.es/ecma262/#sec-string.prototype.touppercase
     //
     // JavaScript behavior:
     // "hello".toUpperCase() -> "HELLO"
@@ -153,7 +153,7 @@ test "spec - case conversion: round trip" {
 }
 
 test "spec - toLocaleLowerCase: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.tolocalelowercase
+    // https://tc39.es/ecma262/#sec-string.prototype.tolocalelowercase
     //
     // JavaScript behavior:
     // "HELLO".toLocaleLowerCase() -> "hello"
@@ -167,7 +167,7 @@ test "spec - toLocaleLowerCase: basic functionality" {
 }
 
 test "spec - toLocaleUpperCase: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.tolocaleuppercase
+    // https://tc39.es/ecma262/#sec-string.prototype.tolocaleuppercase
     //
     // JavaScript behavior:
     // "hello".toLocaleUpperCase() -> "HELLO"
@@ -185,7 +185,7 @@ test "spec - toLocaleUpperCase: basic functionality" {
 // ============================================================================
 
 test "spec - toString: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.tostring
+    // https://tc39.es/ecma262/#sec-string.prototype.tostring
     //
     // JavaScript behavior:
     // "hello".toString() -> "hello"
@@ -218,7 +218,7 @@ test "spec - toString: Unicode" {
 }
 
 test "spec - valueOf: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.valueof
+    // https://tc39.es/ecma262/#sec-string.prototype.valueof
     //
     // JavaScript behavior:
     // "hello".valueOf() -> "hello"
@@ -242,7 +242,7 @@ test "spec - valueOf: empty string" {
 }
 
 test "spec - localeCompare: equal strings" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.localecompare
+    // https://tc39.es/ecma262/#sec-string.prototype.localecompare
     //
     // JavaScript behavior:
     // "hello".localeCompare("hello") -> 0
@@ -299,7 +299,7 @@ test "spec - localeCompare: empty strings" {
 }
 
 test "spec - normalize: default NFC" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.normalize
+    // https://tc39.es/ecma262/#sec-string.prototype.normalize
     //
     // JavaScript behavior:
     // "hello".normalize() -> "hello"

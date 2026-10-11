@@ -1,551 +1,1468 @@
 # z-string
 
-**ECMAScript String API implementation in Zig**
+**ECMA-262 String operations in Zig 0.17**, with UTF-16 indexing and UTF-8/WTF-8 storage. The goal is functional equivalence: allocators, slices, errors, and callbacks express the operations provided by JavaScript's dynamic mechanisms.
 
-[![Zig Version](https://img.shields.io/badge/zig-0.16-orange.svg)](https://ziglang.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-active-green.svg)](#-project-status)
+The reference is [ECMA-262: String Objects](https://tc39.es/ecma262/#sec-string-objects). ECMA-262 identifies the standard; the project does not redefine its target as a particular annual edition. ECMA-402 internationalization and Annex B HTML methods are outside the basic profile.
 
-A Zig library implementing the operations of ECMAScript 262's `String.prototype` — full **capability** coverage of the spec's string operations, expressed in Zig's own idioms rather than a syntactic mimicry of JavaScript's dynamic object model (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) below for what that distinction means and why it matters). Designed to be the foundation for JavaScript/ECMAScript runtime engines written in Zig.
+## Verified scope
 
-## 🎯 Project Goals
+All 39 operations in the inventory have a functional entry point in Zig. This is **100% operation availability**, not 100% semantic conformance. Six operations that accept RegExp retain restrictions imposed by the dependent engine. See [COMPATIBILIDAD_ECMA262_STRING.md](COMPATIBILIDAD_ECMA262_STRING.md) for the matrix and the distinction between coverage and conformance.
 
-- **Spec Coverage**: Provide a Zig-idiomatic equivalent for every `String.prototype` operation ECMAScript 262 defines
-- **UTF-16 Indexing**: Use UTF-16 code units for indexing (like JavaScript)
-- **Performance**: Efficient implementation leveraging Zig's strengths
-- **Runtime Ready**: Built to be integrated into ECMAScript runtime engines
+- Character access, search, slicing, padding, and literal splitting by UTF-16 code units, including isolated surrogates.
+- Complete Unicode 17.0.0 lowercase and uppercase mappings, including contextual final sigma.
+- NFC, NFD, NFKC, and NFKD using complete UCD tables, including Hangul and composition exclusions.
+- `isWellFormed`, `toWellFormed`, a code point iterator, and `String.raw` over typed segments.
+- Deterministic canonical comparison without an allocator, using a fixed root locale.
+- Reusable compiled regex API with flags, exact captures, names, indices, replacement templates, and callbacks.
+- Existing API preserved; strict alternatives are additive.
 
-## ✨ Features
+## Installation and testing
 
-### ✅ Implemented
+Zig 0.17.0 or later is required; `mise.toml` selects 0.17.0. `build.zig.zon` pins `zregex` 0.9.1 to a specific commit and archive hash. Unicode tables are included: building does not require downloading the UCD. Zig downloads the regex dependency if it is not already cached.
 
-Every method below is a real, independently-tested Zig function — this is
-NOT a percentage of "spec compliance" (that would mean matching ECMA-262's
-exact edge-case behavior, verified against a real conformance suite like
-Test262; see [Known Gaps](#-known-gaps) for what's honestly missing on that
-front). It's a coverage count of named operations.
-
-#### Character Access (4 methods)
-- `charAt(index)` - Get character at index
-- `at(index)` - Get character with negative indexing support
-- `charCodeAt(index)` - Get UTF-16 code unit value
-- `codePointAt(index)` - Get Unicode code point
-
-#### Search (5 methods)
-- `indexOf(searchString, position?)` - Find first occurrence
-- `lastIndexOf(searchString, position?)` - Find last occurrence
-- `includes(searchString, position?)` - Check if contains substring
-- `startsWith(searchString, position?)` - Check if starts with substring
-- `endsWith(searchString, length?)` - Check if ends with substring
-
-#### Transform (4 methods)
-- `slice(start, end?)` - Extract substring with negative indices
-- `substring(start, end?)` - Extract substring (swaps if start > end)
-- `concat(...strings)` - Concatenate strings
-- `repeat(count)` - Repeat string N times
-
-#### Padding (2 methods)
-- `padStart(targetLength, padString?)` - Pad from start
-- `padEnd(targetLength, padString?)` - Pad from end
-
-#### Trimming (5 methods)
-- `trim()` - Remove whitespace from both ends
-- `trimStart() / trimLeft()` - Remove whitespace from start
-- `trimEnd() / trimRight()` - Remove whitespace from end
-
-#### Split (1 method — see also `splitRegex` under Regex Methods)
-- `split(separator?, limit?)` - Split string into array by a literal separator
-
-#### Case Conversion (4 methods)
-- `toLowerCase()` - Convert to lowercase
-- `toUpperCase()` - Convert to uppercase
-- `toLocaleLowerCase(locale?)` - Locale-aware lowercase*
-- `toLocaleUpperCase(locale?)` - Locale-aware uppercase*
-
-#### Utility (4 methods)
-- `toStringAlloc()` - Get string value
-- `valueOfAlloc()` - Get primitive value
-- `localeCompare(that, locales?, options?)` - Compare strings*
-- `normalize(form?)` - Unicode normalization (NFC/NFD/NFKC/NFKD)**
-
-\* Basic implementation without full locale support (ICU integration planned)
-
-\*\* Supports common Latin characters (À-ÿ range) with proper decomposition/composition
-
-#### Static Factories (2 methods)
-- `ZString.fromCharCode(code_units)` - Build a string from UTF-16 code units (combines surrogate pairs)
-- `ZString.fromCodePoint(code_points)` - Build a string from full Unicode code points
-
-Both live directly on `ZString` (constructors, same as `init`/`initOwned`/
-`fromOwned`), not in `methods/`. Both take a slice instead of JS's
-variadic `...args` (Zig has no variadic parameters — see
-[Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax)), and
-both error on an unpaired surrogate rather than silently building a
-string z-string's UTF-8 storage can't actually represent (see
-[WELL_FORMED_STRINGS.md](WELL_FORMED_STRINGS.md) for why) — stricter
-than real JS, which allows it.
-
-#### Regex Methods (6 methods) ✅
-- `searchRegex(pattern)` - Search with regex
-- `matchRegex(pattern)` - Match with regex
-- `matchAllRegex(pattern)` - Match all with regex
-- `replaceRegex(pattern, replaceValue)` - Replace with regex support*
-- `replaceAllRegex(pattern, replaceValue)` - Replace all with regex support*
-- `splitRegex(pattern, limit?)` - Split by a regex separator (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) for why this isn't just another `split()` overload — Zig has no function overloading)
-
-All six carry a `*Regex` suffix rather than reusing the plain ECMAScript
-names (`search`, `match`, `matchAll`, `replace`, `replaceAll`) — see
-[Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax) for why
-z-string doesn't overload the non-regex methods for this.
-
-\* `replaceRegex`/`replaceAllRegex` always compile `pattern` as a regex,
-even when you intend a literal substring — if your search string contains
-regex metacharacters (`.`, `+`, `*`, etc.) they'll be interpreted as regex
-syntax instead of matched literally. Escape them yourself if that matters,
-or see [Known Gaps](#-known-gaps).
-
-## 📦 Installation
-
-### Language Support
-
-z-string is a native Zig library — see [Quick Start](#-quick-start) below.
-
-### Dependencies
-
-z-string depends on [zregex](https://github.com/carlos-sweb/z-regex) for regex functionality, pinned as a git dependency in `build.zig.zon`:
-```zig
-.dependencies = .{
-    .zregex = .{
-        .url = "git+https://github.com/carlos-sweb/z-regex.git#<commit>",
-        .hash = "zregex-...",
-    },
-},
-```
-`zig build` fetches it automatically on first run (into a local `zig-pkg/`
-directory, per Zig 0.16's package layout) — no manual cloning or sibling
-checkout required. To move to a different zregex commit:
-```bash
-zig fetch --save git+https://github.com/carlos-sweb/z-regex.git
-```
-This rewrites the `.zregex` entry in `build.zig.zon` with the new commit's
-URL and hash.
-
-#### Quick Setup (Local Development)
-
-```bash
-git clone https://github.com/carlos-sweb/z-string.git
-cd z-string
-zig build test   # fetches zregex automatically
-```
-
-#### Future: Package Manager Installation
-
-Once published, you'll be able to add to your `build.zig.zon`:
-
-```zig
-.{
-    .name = .my_project,          // Zig 0.16 requires an enum literal, not a string
-    .version = "0.1.0",
-    .fingerprint = 0x...,          // Zig 0.16 requires this; `zig build` will generate it
-    .dependencies = .{
-        .zstring = .{
-            .url = "https://github.com/carlos-sweb/z-string/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "1220...", // Use zig fetch to get hash
-        },
-    },
-}
-```
-
-Add to your `build.zig`:
-
-```zig
-const zstring = b.dependency("zstring", .{
-    .target = target,
-    .optimize = optimize,
-});
-
-exe.root_module.addImport("zstring", zstring.module("zstring"));
-```
-
-### Manual Installation
-
-```bash
-git clone https://github.com/carlos-sweb/z-string.git
-cd z-string
+```sh
 zig build test
+zig build test -Doptimize=ReleaseSafe
+zig build bench -Doptimize=ReleaseFast
+zig build example
 ```
 
-## ⚠️ Error Handling
+Consumers add the dependency to their `build.zig.zon` and add `dependency.module("zstring")` to their module imports.
 
-z-string follows Zig's error handling philosophy. All operations that can fail return error unions:
+## String API
 
-```zig
-// ✅ Proper error handling
-const upper = try str.toUpperCase(allocator);
-defer allocator.free(upper);
+Each example is an independent, complete Zig 0.17 program. Copy one fenced block into `src/main.zig` in a consumer project that imports the `zstring` module. Allocating examples obtain their allocator from `init.gpa` and release owned results with `defer`. Non-allocating examples explicitly discard `init`. Output comments show the expected result.
 
-// ✅ Handle specific errors
-const result = str.toUpperCase(allocator) catch |err| {
-    std.log.err("Failed: {}", .{err});
-    return err;
-};
+The examples cover all **60 public `ZString` functions and aliases**, including ownership helpers and legacy regex wrappers. Additional examples cover the compiled regex API, prepared subjects, captures, callbacks, and cleanup. Functions that return an error union use `try` to propagate errors to `main`; this includes allocation failures.
 
-// ✅ Check optional returns
-const char = try str.at(allocator, 0);
-if (char) |c| {
-    defer allocator.free(c);
-    // Use c...
-}
-```
+- [Construction and ownership](#construction-and-ownership)
+- [Length, equality, and character access](#length-equality-and-character-access)
+- [Search](#search)
+- [Slicing, concatenation, padding, and literal replacement](#slicing-concatenation-padding-and-literal-replacement)
+- [Splitting and trimming](#splitting-and-trimming)
+- [Case conversion, normalization, and string values](#case-conversion-normalization-and-string-values)
+- [Legacy regex wrappers](#legacy-regex-wrappers)
+- [Compiled regex examples](#compiled-regex-examples)
 
-**📖 See [ERROR_HANDLING.md](ERROR_HANDLING.md) for comprehensive error handling guide.**
+The `access`, `search`, `transform`, `padding`, `trimming`, `split`, `case`, `utility`, `utf16`, and `regex` modules retain their standalone functions. `ZString` retains all its original methods, including `splitRegex`. The `trimLeft`/`trimRight` aliases remain available.
 
-## 🚀 Quick Start
+### Additive alternatives
 
-### Zig API
+| API | Contract |
+| --- | --- |
+| `ZString.fromCharCodeEcma(allocator, []const u16)` | Accepts any UTF-16 code unit, including isolated surrogates. |
+| `ZString.fromCodePointEcma(allocator, []const u21)` | Accepts surrogates; rejects values above U+10FFFF. |
+| `normalizeStrict(allocator, form)` | Returns `InvalidNormalizationForm` for an unknown form. |
+| `toWellFormed(allocator)` | Replaces isolated surrogate halves with U+FFFD and preserves valid pairs. |
+| `iterator()` | Borrowed iterator with `next() ?u21`; performs no allocations. |
+| `ZString.raw(allocator, segments, substitutions)` | Interleaves raw segments; substitutions are already strings. |
+| `replaceLiteral` / `replaceAllLiteral` | Literal UTF-16 search with `$$`, `$&`, prefix, and suffix replacement templates. |
+
+The existing `fromCharCode` and `fromCodePoint` factories **remain strict** about surrogates. `normalize` retains its copy fallback for invalid forms. Numeric arguments are already typed: JavaScript coercion (`ToString`, `ToUint16`, etc.) is the consumer/runtime's responsibility.
+
+### Basic locale profile
+
+`toLocaleLowerCase` and `toLocaleUpperCase` use default Unicode mappings with a fixed root locale. `localeCompare` treats canonically equivalent forms as equal and provides a deterministic total order over normalized code points. Its optional locale/options arguments remain reserved; ECMA-402 and linguistic collation such as ICU are not implemented.
+
+`localeCompare` performs no allocations; a sequence of k combining marks may require O(k²) traversal to maintain stable canonical ordering.
+
+### Construction and ownership
+
+#### `ZString.init`
+
+Borrow an existing string. The input must outlive the wrapper.
 
 ```zig
 const std = @import("std");
-const zstring = @import("zstring");
+const z = @import("zstring");
 
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    _ = init;
 
-    // Create a ZString
-    const str = zstring.ZString.init("Hello, World!");
-
-    // Character access
-    const char = try str.charAt(allocator, 0);
-    defer allocator.free(char);
-    std.debug.print("First char: {s}\n", .{char}); // "H"
-
-    // Search
-    const pos = str.indexOf("World", null);
-    std.debug.print("Position: {}\n", .{pos}); // 7
-
-    // Transform
-    const upper = try str.toUpperCase(allocator);
-    defer allocator.free(upper);
-    std.debug.print("Upper: {s}\n", .{upper}); // "HELLO, WORLD!"
-
-    // Split (literal separator)
-    const parts = try str.split(allocator, ", ", null);
-    defer zstring.ZString.freeSplitResult(allocator, parts);
-    std.debug.print("Parts: {s}, {s}\n", .{parts[0], parts[1]}); // "Hello", "World!"
-
-    // Split (regex separator) -- a sibling function, not an overload of
-    // split() -- see "Zig Idioms vs JavaScript Syntax" below.
-    const digits = zstring.ZString.init("a1b2c3");
-    const pieces = try digits.splitRegex(allocator, "[0-9]+", null);
-    defer zstring.ZString.freeSplitResult(allocator, pieces);
-    std.debug.print("Pieces: {s}, {s}, {s}\n", .{pieces[0], pieces[1], pieces[2]}); // "a", "b", "c"
+    const text = z.ZString.init("Hello");
+    std.debug.print("{s}\n", .{text.data}); // Hello
 }
 ```
 
-## 🧩 Composing with the z-* ecosystem
+#### `ZString.initOwned`
 
-z-string depends on nothing but `zregex` (and only for the methods that
-actually need real regex matching). It does NOT depend on `z-array`,
-`z-value`, or anything else in the wider `z-*` family — that's
-deliberate, not an oversight. `split()`/`splitRegex()` already return
-everything you need (`[][]u8`, a plain Zig slice) to build a richer
-container yourself, on the consumer side, with zero changes to this
-library:
+Copy a string into an owned wrapper; release it with deinit.
 
 ```zig
 const std = @import("std");
-const zstring = @import("zstring");
-const zarray = @import("zarray");
+const z = @import("zstring");
 
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
-    const str = zstring.ZString.init("hola, a, todos");
-    const words = try zarray.ZArray([]const u8).fromSlice(
-        allocator,
-        try str.split(allocator, ", ", null),
-    );
-    // words is now a real ZArray([]const u8) -- push/pop/map/filter/etc.
-    // all available, on top of what split() already gave you.
+    var text = try z.ZString.initOwned(allocator, "Hello");
+    defer text.deinit();
+    std.debug.print("{s}\n", .{text.data}); // Hello
 }
 ```
 
-**Why z-string doesn't just depend on z-array and return `ZArray`
-directly:** it would only save the one `fromSlice` copy above, at the
-cost of a real dependency edge pointed the wrong way for what's likely
-to come next. `ZArray`'s own `join()`/`toString()` want to turn their
-elements back into text -- which is exactly z-string's job. Depend
-`z-string -> z-array` today and there's a real chance of wanting
-`z-array -> z-string` (or `-> z-value`) tomorrow for that, and now
-you're negotiating a cycle instead of composing two libraries. Keeping
-the dependency arrow one-directional (or absent, as here) means either
-side can be used completely on its own -- you reach for both only when
-YOUR code wants both, and z-string never has to care that z-array
-exists.
+#### `ZString.fromOwned`
 
-## 📚 Documentation
-
-### Key Concepts
-
-#### Zig Idioms vs JavaScript Syntax
-
-z-string targets **functional equivalence** with `String.prototype`, not
-syntactic mimicry — some of what reads as a single, flexible JavaScript
-method is deliberately split across several Zig functions, because Zig
-doesn't support what JavaScript relies on to make that flexibility work:
-
-- **No function overloading.** `"a,b".split(",")` and `"a1b".split(/\d/)`
-  are the same JS method dispatching on the argument's runtime type.
-  Zig can't do that — there's no way to have two functions named `split`
-  distinguished only by parameter type. So a literal separator uses
-  `split()`, and a regex separator uses the sibling function
-  `splitRegex()`. Same pattern elsewhere in this library: `toUpperCase()`
-  vs `toLocaleUpperCase()`, and the regex-backed methods
-  (`searchRegex()`/`matchRegex()`/`matchAllRegex()`/`replaceRegex()`/
-  `replaceAllRegex()`) are all named with an explicit `Regex` suffix
-  rather than overloading `search`/`match`/`replace` from the spec.
-- **No dynamic `[]` indexing on custom types.** JS's `new String("abc")[0]`
-  relies on the language auto-exposing indexed properties on an object.
-  Zig has no operator overloading for that. The equivalent capability is
-  `str.at(allocator, 0)` — same result, explicit call instead of bracket
-  syntax.
-
-If you're coming from JS and expect one method name per spec operation,
-this is the one thing to unlearn: **the library grows by adding a new,
-clearly-named function, not by overloading an existing one.**
-
-#### UTF-16 Indexing
-
-JavaScript uses UTF-16 code units for string indexing. z-string maintains this behavior for spec compliance:
+Transfer an allocated buffer to a wrapper. The wrapper frees it.
 
 ```zig
-const str = zstring.ZString.init("😀"); // Emoji (surrogate pair)
-std.debug.print("Length: {}\n", .{str.length()}); // 2 (UTF-16 code units)
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const bytes = try allocator.dupe(u8, "Hello");
+    var text = z.ZString.fromOwned(allocator, bytes);
+    defer text.deinit();
+    std.debug.print("{s}\n", .{text.data}); // Hello
+}
 ```
 
-#### Memory Management
+#### `ZString.fromCharCode`
 
-Methods that return new strings require explicit memory management:
+Build from UTF-16 units. This legacy factory rejects isolated surrogates.
 
 ```zig
-const upper = try str.toUpperCase(allocator);
-defer allocator.free(upper); // Caller owns the memory
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCharCode(allocator, &.{ 65, 66, 67 });
+    defer text.deinit();
+    std.debug.print("{s}\n", .{text.data}); // ABC
+}
 ```
 
-Accumulating several results before combining them (e.g. building up parts
-of a string) uses Zig 0.16's unmanaged `std.ArrayList` — initialize with
-`.empty`, and pass the allocator explicitly to `append`/`deinit` (there is
-no `.init(allocator)` shorthand anymore):
+#### `ZString.fromCodePoint`
+
+Build from code points. This legacy factory rejects surrogates and values above U+10FFFF.
 
 ```zig
-var parts: std.ArrayList([]const u8) = .empty;
-defer {
-    for (parts.items) |part| allocator.free(part);
-    parts.deinit(allocator);
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCodePoint(allocator, &.{ 65, 0x1f600 });
+    defer text.deinit();
+    std.debug.print("{s}\n", .{text.data}); // A😀
+}
+```
+
+#### `ZString.fromCharCodeEcma`
+
+Build from any UTF-16 units, including isolated surrogates.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCharCodeEcma(allocator, &.{ 65, 0xd800 });
+    defer text.deinit();
+    std.debug.print("Length: {d}; last unit: {X}\n", .{ text.lengthConst(), text.charCodeAt(1).? });
+    // Length: 2; last unit: D800
+}
+```
+
+#### `ZString.fromCodePointEcma`
+
+Build from code points, accepting surrogates; values above U+10FFFF produce CodepointTooLarge.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCodePointEcma(allocator, &.{ 65, 0x1f600 });
+    defer text.deinit();
+    std.debug.print("{s}\n", .{text.data}); // A😀
+}
+```
+
+#### `ZString.raw`
+
+Interleave raw segments and string substitutions without interpreting escapes.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const result = try z.ZString.raw(allocator, &.{ "Hello ", "!" }, &.{"Zig"});
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // Hello Zig!
+}
+```
+
+#### `ZString.clone`
+
+Create an independent owned copy of a wrapper.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const original = z.ZString.init("Hello");
+    var copy = try original.clone(allocator);
+    defer copy.deinit();
+    std.debug.print("{s}\n", .{copy.data}); // Hello
+}
+```
+
+#### `ZString.deinit`
+
+Release an owned wrapper. Calling deinit on a borrowed wrapper is safe.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.initOwned(allocator, "Hello");
+    text.deinit();
+    std.debug.print("Owned after deinit: {}\n", .{text.isOwned()}); // false
+}
+```
+
+### Length, equality, and character access
+
+#### `ZString.length`
+
+Return and cache the UTF-16 length.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    var text = z.ZString.init("A😀B");
+    std.debug.print("{d}\n", .{text.length()}); // 4
+}
+```
+
+#### `ZString.lengthConst`
+
+Return the UTF-16 length without caching.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("A😀B");
+    std.debug.print("{d}\n", .{text.lengthConst()}); // 4
+}
+```
+
+#### `ZString.byteLength`
+
+Return the storage size in bytes, rather than UTF-16 units.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("A😀B");
+    std.debug.print("{d}\n", .{text.byteLength()}); // 6
+}
+```
+
+#### `ZString.isEmpty`
+
+Check whether the string is empty.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("");
+    std.debug.print("{}\n", .{text.isEmpty()}); // true
+}
+```
+
+#### `ZString.isOwned`
+
+Check whether the wrapper owns its buffer.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.initOwned(allocator, "Hello");
+    defer text.deinit();
+    std.debug.print("{}\n", .{text.isOwned()}); // true
+}
+```
+
+#### `ZString.eql`
+
+Compare two wrappers by their UTF-16 contents.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const left = z.ZString.init("Hello");
+    const right = z.ZString.init("Hello");
+    std.debug.print("{}\n", .{left.eql(right)}); // true
+}
+```
+
+#### `ZString.eqlSlice`
+
+Compare a wrapper with a UTF-8/WTF-8 slice.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello");
+    std.debug.print("{}\n", .{text.eqlSlice("Hello")}); // true
+}
+```
+
+#### `ZString.charAt`
+
+Return one UTF-16 unit as an owned string; out-of-range indices return an empty string.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.charAt(allocator, 1);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // e
+}
+```
+
+#### `ZString.at`
+
+Access a UTF-16 unit using a relative index; out-of-range indices return null.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    if (try text.at(allocator, -1)) |result| {
+        defer allocator.free(result);
+        std.debug.print("{s}\n", .{result}); // o
+    }
+}
+```
+
+#### `ZString.charCodeAt`
+
+Return a numeric UTF-16 code unit, or null outside the string.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("😀");
+    if (text.charCodeAt(0)) |unit| {
+        std.debug.print("{X}\n", .{unit}); // D83D: high surrogate
+    }
+}
+```
+
+#### `ZString.codePointAt`
+
+Decode the code point starting at a UTF-16 index, or return null outside the string.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("😀");
+    if (text.codePointAt(0)) |point| {
+        std.debug.print("U+{X}\n", .{point}); // U+1F600
+    }
+}
+```
+
+#### `ZString.iterator`
+
+Iterate over code points with next(), without allocating. Isolated surrogates are also yielded.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("A😀B");
+    var iterator = text.iterator();
+    while (iterator.next()) |point| {
+        std.debug.print("U+{X}\n", .{point});
+    }
+    // U+41, U+1F600, U+42 on separate lines.
+}
+```
+
+#### `ZString.isWellFormed`
+
+Check whether all UTF-16 surrogate units are paired.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCharCodeEcma(allocator, &.{0xd800});
+    defer text.deinit();
+    std.debug.print("{}\n", .{text.isWellFormed()}); // false
+}
+```
+
+#### `ZString.toWellFormed`
+
+Replace isolated surrogates with U+FFFD in an owned result.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var text = try z.ZString.fromCharCodeEcma(allocator, &.{0xd800});
+    defer text.deinit();
+    const result = try text.toWellFormed(allocator);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // � (U+FFFD)
+}
+```
+
+### Search
+
+#### `ZString.includes`
+
+Check whether a literal string occurs at or after the optional UTF-16 position.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello world");
+    std.debug.print("{}\n", .{text.includes("world", null)}); // true
+}
+```
+
+#### `ZString.indexOf`
+
+Find the first literal occurrence; return -1 if absent.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello world");
+    std.debug.print("{d}\n", .{text.indexOf("o", null)}); // 4
+}
+```
+
+#### `ZString.lastIndexOf`
+
+Find the last literal occurrence at or before the optional position.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello world");
+    std.debug.print("{d}\n", .{text.lastIndexOf("o", null)}); // 7
+}
+```
+
+#### `ZString.startsWith`
+
+Check a literal prefix at the optional UTF-16 position.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello world");
+    std.debug.print("{}\n", .{text.startsWith("Hello", null)}); // true
+}
+```
+
+#### `ZString.endsWith`
+
+Check a literal suffix at the optional UTF-16 end position.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("Hello world");
+    std.debug.print("{}\n", .{text.endsWith("world", null)}); // true
+}
+```
+
+### Slicing, concatenation, padding, and literal replacement
+
+#### `ZString.slice`
+
+Extract a UTF-16 interval; negative indices count from the end.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.slice(allocator, 1, 4);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // ell
+}
+```
+
+#### `ZString.substring`
+
+Extract an interval, clamping negative indices and swapping reversed endpoints.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.substring(allocator, 4, 1);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // ell
+}
+```
+
+#### `ZString.concat`
+
+Concatenate strings, including surrogate pairs formed at joins.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.concat(allocator, &.{ " ", "world" });
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // Hello world
+}
+```
+
+#### `ZString.repeat`
+
+Repeat a string. Negative counts produce InvalidCount.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("ab");
+    const result = try text.repeat(allocator, 3);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // ababab
+}
+```
+
+#### `ZString.padStart`
+
+Pad the start to a target UTF-16 length.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("7");
+    const result = try text.padStart(allocator, 3, "0");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // 007
+}
+```
+
+#### `ZString.padEnd`
+
+Pad the end to a target UTF-16 length.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("7");
+    const result = try text.padEnd(allocator, 3, "0");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // 700
+}
+```
+
+#### `ZString.replaceLiteral`
+
+Replace the first literal match, expanding substitution templates.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("one one");
+    const result = try text.replaceLiteral(allocator, "one", "[$&]");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // [one] one
+}
+```
+
+#### `ZString.replaceAllLiteral`
+
+Replace all literal matches, expanding substitution templates.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("one one");
+    const result = try text.replaceAllLiteral(allocator, "one", "[$&]");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // [one] [one]
+}
+```
+
+### Splitting and trimming
+
+#### `ZString.split`
+
+Split using a literal separator and free both the array and its strings.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a,b,c");
+    const pieces = try text.split(allocator, ",", null);
+    defer z.ZString.freeSplitResult(allocator, pieces);
+    for (pieces) |piece| std.debug.print("{s}\n", .{piece});
+    // a, b, c on separate lines.
+}
+```
+
+#### `ZString.freeSplitResult`
+
+Release every owned piece and the array returned by split or splitRegex.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a,b,c");
+    const pieces = try text.split(allocator, ",", null);
+    defer z.ZString.freeSplitResult(allocator, pieces);
+    for (pieces) |piece| std.debug.print("{s}\n", .{piece});
+    // a, b, c on separate lines.
+}
+```
+
+#### `ZString.trim`
+
+Remove ECMAScript whitespace from both ends.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("  Hello  ");
+    const result = try text.trim(allocator);
+    defer allocator.free(result);
+    std.debug.print("[{s}]\n", .{result}); // [Hello]
+}
+```
+
+#### `ZString.trimStart`
+
+Remove whitespace from the beginning.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("  Hello  ");
+    const result = try text.trimStart(allocator);
+    defer allocator.free(result);
+    std.debug.print("[{s}]\n", .{result}); // [Hello  ]
+}
+```
+
+#### `ZString.trimEnd`
+
+Remove whitespace from the end.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("  Hello  ");
+    const result = try text.trimEnd(allocator);
+    defer allocator.free(result);
+    std.debug.print("[{s}]\n", .{result}); // [  Hello]
+}
+```
+
+#### `ZString.trimLeft`
+
+Use the legacy alias for trimStart.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("  Hello  ");
+    const result = try text.trimLeft(allocator);
+    defer allocator.free(result);
+    std.debug.print("[{s}]\n", .{result}); // [Hello  ]
+}
+```
+
+#### `ZString.trimRight`
+
+Use the legacy alias for trimEnd.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("  Hello  ");
+    const result = try text.trimRight(allocator);
+    defer allocator.free(result);
+    std.debug.print("[{s}]\n", .{result}); // [  Hello]
+}
+```
+
+### Case conversion, normalization, and string values
+
+#### `ZString.toLowerCase`
+
+Apply complete Unicode default lowercase mappings.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("CAFÉ");
+    const result = try text.toLowerCase(allocator);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // café
+}
+```
+
+#### `ZString.toUpperCase`
+
+Apply complete Unicode uppercase mappings, including expansions.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Straße");
+    const result = try text.toUpperCase(allocator);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // STRASSE
+}
+```
+
+#### `ZString.toLocaleLowerCase`
+
+Use the fixed root locale; locale-specific ECMA-402 mappings are not implemented.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("CAFÉ");
+    const result = try text.toLocaleLowerCase(allocator, null);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // café
+}
+```
+
+#### `ZString.toLocaleUpperCase`
+
+Use the fixed root locale; the optional locale argument is reserved.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Straße");
+    const result = try text.toLocaleUpperCase(allocator, null);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // STRASSE
+}
+```
+
+#### `ZString.normalize`
+
+Normalize using NFC, NFD, NFKC, or NFKD; invalid forms retain the legacy copy fallback.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("e\u{0301}");
+    const result = try text.normalize(allocator, "NFC");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // é
+}
+```
+
+#### `ZString.normalizeStrict`
+
+Normalize with explicit InvalidNormalizationForm errors for unknown forms.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("e\u{0301}");
+    const result = try text.normalizeStrict(allocator, "NFC");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // é
+}
+```
+
+#### `ZString.toStringAlloc`
+
+Return an owned copy of the string value.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.toStringAlloc(allocator);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // Hello
+}
+```
+
+#### `ZString.valueOfAlloc`
+
+Return an owned copy of the wrapped value.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("Hello");
+    const result = try text.valueOfAlloc(allocator);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // Hello
+}
+```
+
+#### `ZString.localeCompare`
+
+Compare canonically equivalent strings using the fixed root profile. Locale and options arguments are reserved.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    _ = init;
+
+    const text = z.ZString.init("é");
+    const order = text.localeCompare("e\u{0301}", null, null);
+    std.debug.print("{d}\n", .{order}); // 0
+}
+```
+
+### Legacy regex wrappers
+
+#### `ZString.searchRegex`
+
+Find a regex match and return its UTF-16 index. Legacy syntax/execution failures can return -1.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("abc123");
+    const index = try text.searchRegex(allocator, "[0-9]+");
+    std.debug.print("{d}\n", .{index}); // 3
+}
+```
+
+#### `ZString.matchRegex`
+
+Return the first legacy match, or null. Free an owned result with MatchArray.deinit.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("abc123");
+    if (try text.matchRegex(allocator, "[0-9]+")) |match| {
+        defer match.deinit();
+        std.debug.print("{s}\n", .{match.match}); // 123
+    }
+}
+```
+
+#### `ZString.matchAllRegex`
+
+Collect legacy matches and free each match together with the result array.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a1 b22");
+    const matches = try text.matchAllRegex(allocator, "[0-9]+");
+    defer z.ZString.freeMatchAllResult(allocator, matches);
+    for (matches) |match| std.debug.print("{s}\n", .{match.match});
+    // 1, 22 on separate lines.
+}
+```
+
+#### `ZString.freeMatchAllResult`
+
+Release the array and all MatchArray values returned by matchAllRegex.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a1 b22");
+    const matches = try text.matchAllRegex(allocator, "[0-9]+");
+    defer z.ZString.freeMatchAllResult(allocator, matches);
+    for (matches) |match| std.debug.print("{s}\n", .{match.match});
+    // 1, 22 on separate lines.
+}
+```
+
+#### `ZString.replaceRegex`
+
+Replace regex matches using the legacy API. Replacement text is inserted literally, without template expansion.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a1 b22");
+    const result = try text.replaceRegex(allocator, "[0-9]+", "#");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // a# b22
+}
+```
+
+#### `ZString.replaceAllRegex`
+
+Replace regex matches using the legacy API. Replacement text is inserted literally, without template expansion.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a1 b22");
+    const result = try text.replaceAllRegex(allocator, "[0-9]+", "#");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // a# b#
+}
+```
+
+#### `ZString.splitRegex`
+
+Split using a regex separator. Absent captures become empty strings in this legacy wrapper.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const text = z.ZString.init("a1b22c");
+    const pieces = try text.splitRegex(allocator, "[0-9]+", null);
+    defer z.ZString.freeSplitResult(allocator, pieces);
+    for (pieces) |piece| std.debug.print("{s}\n", .{piece});
+    // a, b, c on separate lines.
+}
+```
+
+## Strict, reusable regex API
+
+### Compiled regex examples
+
+#### `CompiledRegex.compile`
+
+Compile a reusable pattern. Invalid syntax, unsupported features, duplicate flags, or invalid flag combinations produce errors.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    std.debug.print("{d}\n", .{try re.search("123 One")}); // 4
+}
+```
+
+#### `CompiledRegex.deinit`
+
+Release the compiled pattern and its scratch storage. Do not copy an owning CompiledRegex.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "[a-z]+", "");
+    re.deinit();
+    std.debug.print("Regex released\n", .{});
+}
+```
+
+#### `CompiledRegex.setLimits`
+
+Configure backtracking budgets. The linear VM does not use these limits.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    re.setLimits(.{ .max_steps = 100_000, .max_backtrack_stack_bytes = 1024 * 1024 });
+    std.debug.print("{d}\n", .{try re.search("One")}); // 0
+}
+```
+
+#### `CompiledRegex.search`
+
+Return the first match index in UTF-16 units, or -1.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    std.debug.print("{d}\n", .{try re.search("123 One")}); // 4
+}
+```
+
+#### `CompiledRegex.match`
+
+Return one detailed match starting at a UTF-16 position. This API returns one match even when g is set.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    if (try re.match("One two", 0)) |match| {
+        defer match.deinit();
+        std.debug.print("{s}\n", .{match.match}); // One
+    }
+}
+```
+
+#### `CompiledRegex.matchAll`
+
+Collect detailed matches. The g flag is required; otherwise GlobalFlagRequired is returned.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const matches = try re.matchAll("One two");
+    defer z.compiled_regex.freeMatches(allocator, matches);
+    for (matches) |match| std.debug.print("{s}\n", .{match.match});
+    // One, two on separate lines.
+}
+```
+
+#### `CompiledRegex.replace`
+
+Expand replacement templates; g selects all matches instead of only the first.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const result = try re.replace("One two", "[$<word>]");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // [One] [two]
+}
+```
+
+#### `CompiledRegex.replaceAll`
+
+Replace every match with template expansion. The g flag is required.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const result = try re.replaceAll("One two", "[$<word>]");
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // [One] [two]
+}
+```
+
+#### `CompiledRegex.replaceWith`
+
+Generate replacement text with a callback. The callback must return bytes allocated by the supplied allocator.
+
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+fn uppercase(_: ?*anyopaque, match: z.DetailedMatch, allocator: std.mem.Allocator) ![]u8 {
+    return z.ZString.init(match.match).toUpperCase(allocator);
 }
 
-try parts.append(allocator, try str1.toUpperCase(allocator));
-try parts.append(allocator, try str2.toUpperCase(allocator));
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const result = try re.replaceWith("One two", null, uppercase);
+    defer allocator.free(result);
+    std.debug.print("{s}\n", .{result}); // ONE TWO
+}
 ```
 
-See `examples/error_handling.zig` (`safeStringBuilder`, run via
-`zig build example-errors`) for this in context.
+#### `CompiledRegex.split`
 
-#### Borrowed vs Owned Strings
+Split with regex captures. Nonparticipating captures are null; free with compiled_regex.freeSplit.
 
 ```zig
-// Borrowed (no allocation)
-const borrowed = zstring.ZString.init("hello");
+const std = @import("std");
+const z = @import("zstring");
 
-// Owned (allocated, must call deinit)
-var owned = try zstring.ZString.initOwned(allocator, "hello");
-defer owned.deinit();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "[0-9]+", "");
+    defer re.deinit();
+    const pieces = try re.split("a1b22c", null);
+    defer z.compiled_regex.freeSplit(allocator, pieces);
+    for (pieces) |piece| {
+        if (piece) |text| std.debug.print("{s}\n", .{text});
+    }
+    // a, b, c on separate lines.
+}
 ```
 
-### Examples
+#### `CompiledRegex.execAt`
 
-See the `examples/` directory for complete examples:
-- `character_access.zig` - Character access methods
-- `search_methods.zig` - Search and indexOf methods
-- `transform_methods.zig` - Slice, substring, concat, repeat
-- `padding_trimming_methods.zig` - Padding and trimming
-- `split_method.zig` - String splitting
-- `error_handling.zig` - Error handling patterns (try/catch, errdefer, ArrayList-based string building)
+Execute on a prepared subject at a UTF-16 position. Returned slots are borrowed and overwritten by the next execution.
 
-Run examples:
-```bash
-zig build example              # Character access
-zig build example-search       # Search methods
-zig build example-transform    # Transform methods
-zig build example-padding-trimming
-zig build example-split
-zig build example-errors       # Error handling (recommended!)
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const subject = try z.PreparedSubject.init(allocator, "One two");
+    defer subject.deinit();
+    if (try re.execAt(subject, 4)) |view| {
+        std.debug.print("{d}..{d}\n", .{ view.index, view.end }); // 4..7
+    }
+}
 ```
 
-## 🧪 Testing
+#### `PreparedSubject.init / deinit`
 
-```bash
-# Run all tests
-zig build test
+Prepare and release owned UTF-16 storage while borrowing the original input. Invalid non-WTF-8 input produces InvalidUtf8.
 
-# Run benchmarks
-zig build bench
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    const subject = try z.PreparedSubject.init(allocator, "A😀B");
+    defer subject.deinit();
+    std.debug.print("{d}\n", .{subject.data.len}); // 4 UTF-16 units
+}
 ```
 
-**Test Coverage:**
-- 372+ tests across all implemented methods
-- ECMAScript spec compliance tests
-- Unicode and emoji handling tests
-- Unicode normalization tests (NFC/NFD/NFKC/NFKD)
-- Edge case coverage
+#### `DetailedMatch.named / deinit`
 
-## 🏗️ Architecture
+Read a named capture and release the owned match. The returned capture slice is borrowed from the match.
 
-```
-z-string/
-├── src/
-│   ├── zstring.zig           # Public Zig API entry point
-│   ├── core/
-│   │   ├── utf16.zig         # UTF-8 ↔ UTF-16 conversion
-│   │   └── string.zig        # ZString struct
-│   └── methods/              # Method implementations (grouped by category)
-│       ├── access.zig        # charAt, at, charCodeAt, codePointAt
-│       ├── search.zig        # indexOf, lastIndexOf, includes, etc.
-│       ├── transform.zig     # slice, substring, concat, repeat
-│       ├── padding.zig       # padStart, padEnd
-│       ├── trimming.zig      # trim, trimStart, trimEnd
-│       ├── split.zig         # split
-│       ├── case.zig          # toLowerCase, toUpperCase
-│       ├── regex.zig         # search, match, matchAll, replace, replaceAll, splitRegex
-│       ├── unicode_normalize.zig  # NFC/NFD/NFKC/NFKD normalization
-│       └── utility.zig       # toString, valueOf, localeCompare, normalize
-├── tests/
-│   ├── spec/                 # ECMAScript spec compliance tests
-│   └── benchmarks/           # Performance benchmarks
-└── examples/                 # Usage examples
+```zig
+const std = @import("std");
+const z = @import("zstring");
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    if (try re.match("One two", 0)) |match| {
+        defer match.deinit();
+        if (match.named("word")) |word| std.debug.print("{s}\n", .{word}); // One
+    }
+}
 ```
 
-## 🔮 Roadmap
+#### `compiled_regex.freeMatches`
 
-### Phase 1: Core Methods ✅ (Complete)
-- [x] Character access methods
-- [x] Search methods (literal)
-- [x] Transform methods
-- [x] Padding and trimming
-- [x] Split (literal)
-- [x] Case conversion
-- [x] Utility methods
-- [x] Unicode normalization (NFC/NFD/NFKC/NFKD)
+Free all detailed matches and their result array.
 
-### Phase 2: Regex Integration ✅ (Complete)
-- [x] Integrate zregex as dependency
-- [x] Implement search() with regex
-- [x] Implement match() and matchAll()
-- [x] Implement replace() and replaceAll() with regex
-- [x] Implement splitRegex() (regex-separator split, sibling of split())
-- [x] Comprehensive test coverage for regex methods
+```zig
+const std = @import("std");
+const z = @import("zstring");
 
-### Phase 3: Advanced Features 🔮 (Future)
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
-See [PHASE3_ANALYSIS.md](PHASE3_ANALYSIS.md) for a complexity breakdown
-of these three — they are NOT the same size (locale-aware case mapping
-is bounded and cheap; full UCD normalization and real ICU collation are
-each a project of their own).
-
-- [ ] Full locale support (ICU integration)
-- [ ] Extended Unicode normalization (full UCD coverage beyond Latin-1)
-- [ ] Locale-aware case mapping (Turkish İ/i, etc.)
-- [x] Static factories: `ZString.fromCharCode`, `ZString.fromCodePoint`
-- [ ] `String.raw` (needs a tagged-template-literal caller, out of scope for a pure string-ops library on its own)
-- [ ] `toWellFormed()` (the fix-up counterpart to the existing `isWellFormed()` check)
-- [ ] `replace`/`replaceAll` treating a plain (non-regex) search string as a literal match instead of always compiling it as a pattern
-
-## ⚠️ Known Gaps
-
-Honest list of ECMA-262 `String.prototype` **capabilities** with no
-equivalent in z-string yet (see [Zig Idioms vs JavaScript Syntax](#zig-idioms-vs-javascript-syntax)
-for why "capability" and "same method name" are different questions):
-
-- **`toWellFormed()` / real `isWellFormed()`** — deeper than a missing
-  method; the current `[]const u8` (standard UTF-8) storage can't even
-  represent the lone-surrogate case these two are supposed to detect.
-  Full writeup, including what a real fix requires, in
-  [WELL_FORMED_STRINGS.md](WELL_FORMED_STRINGS.md).
-- **`String.raw`** — no equivalent; it's inherently tied to a
-  tagged-template-literal call site (the raw, unescaped source text of
-  the template), which doesn't have a meaningful counterpart in a
-  standalone string-operations library.
-- **`replace()`/`replaceAll()` literal-search correctness** — both always
-  compile their search argument as a regex pattern. A search string
-  containing regex metacharacters (`.`, `+`, `*`, `?`, ...) will be
-  interpreted as regex syntax rather than matched literally — e.g.
-  searching for the literal text `"3.14"` also matches `"3X14"` for any
-  character `X`, because `.` means "any character" once compiled.
-
-This list is a byproduct of an actual capability audit against ECMA-262
-§22.1.3, not a percentage estimate — if you find something else missing,
-open an issue and it'll get added here.
-
-## 🤝 Contributing
-
-Contributions are welcome! This project is actively maintained.
-
-### Development Setup
-
-```bash
-git clone https://github.com/carlos-sweb/z-string.git
-cd z-string
-zig build test
+    var re = try z.CompiledRegex.compile(allocator, "(?<word>[a-z]+)", "gdi");
+    defer re.deinit();
+    const matches = try re.matchAll("One two");
+    defer z.compiled_regex.freeMatches(allocator, matches);
+    std.debug.print("{d}\n", .{matches.len}); // 2
+}
 ```
 
-### Guidelines
+#### `compiled_regex.freeSplit`
 
-- Follow ECMAScript 262 specification exactly
-- Maintain UTF-16 indexing compatibility
-- Include comprehensive tests for all changes
-- Document public APIs with examples
+Free every present split piece and its result array.
 
-## 📄 License
+```zig
+const std = @import("std");
+const z = @import("zstring");
 
-MIT License - see [LICENSE](LICENSE) file for details.
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
-## 🔗 Related Projects
+    var re = try z.CompiledRegex.compile(allocator, ",", "");
+    defer re.deinit();
+    const pieces = try re.split("a,b", null);
+    defer z.compiled_regex.freeSplit(allocator, pieces);
+    std.debug.print("{d}\n", .{pieces.len}); // 2
+}
+```
 
-- **[zregex](https://github.com/carlos-sweb/z-regex)** - Zig regex engine for ECMAScript compatibility; z-string's only dependency, used for all `*Regex` methods
-- **Zig Standard Library** - UTF-8/UTF-16 utilities
+- Flags: `d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`; duplicates and invalid combinations produce errors.
+- `search`, `match(input, start)`, `matchAll`, `replace`, `replaceAll`, `replaceWith`, and `split` propagate syntax, memory, and execution errors.
+- `DetailedMatch` contains the match, exact captures, names, start/end indices, and each capture's indices. `indices[0]` refers to the full match. Indices are exposed even without `d`.
+- `matchAll` and `replaceAll` require `g`. Empty matches advance by one UTF-16 code unit, or one code point under `u`/`v`, and include the final match where appropriate.
+- `split` returns `[]?[]u8`: a nonparticipating capture is `null`. Free the result with `compiled_regex.freeSplit`.
+- Regex templates additionally support `$1`…`$99` and `$<name>`. `replaceWith` accepts a callback and optional context; the callback receives a borrowed result and returns owned bytes allocated with the supplied allocator.
+- `setLimits` configures backtracking limits; the linear VM does not use those limits.
 
-## 📊 Project Status
+A `CompiledRegex` owns its pattern, slots, and scratch storage; do not copy it or share it for concurrent execution. `PreparedSubject` owns its UTF-16 buffer and borrows the input. The input must outlive the subject and any `DetailedMatch` that references it. `MatchView.slots` is overwritten by the next execution. The tested `execAt` routes reuse memory after warmup; APIs that prepare strings or return owned results do allocate memory.
 
-**Current Version:** 0.5.0
+The existing `searchRegex`/`matchRegex`/`matchAllRegex`/`replaceRegex`/`replaceAllRegex` wrappers retain their historical fallbacks. Legacy replacements insert replacement text without expanding templates; `MatchArray.groups` retains its 15 slots. `splitRegex` retains `[][]u8`, corrects empty-match advancement and capture handling, and represents an absent capture as `""`. Use the compiled API to distinguish an absent capture from an empty one.
 
-**Coverage:** every `String.prototype` operation from ECMA-262 §22.1.3 has
-a Zig-idiomatic equivalent in this library, EXCEPT the items listed under
-[Known Gaps](#-known-gaps) above (`String.raw`, `toWellFormed()`, and the
-replace/replaceAll literal-search caveat). "Coverage" here means
-"a real function exists for it" — it is deliberately NOT a spec-compliance
-percentage. This library doesn't run against Test262 (ECMAScript's actual
-conformance suite) on its own; the only end-to-end conformance numbers
-that exist are measured downstream, through a full JS engine that
-consumes z-string, and reflect that engine's plumbing as much as this
-library's own correctness.
+### Remaining restrictions
 
-✅ **Project Status: ACTIVE**
+The pinned `zregex` engine rejects certain valid `iv` combinations, local modifiers, and complex lookbehind patterns with `UnsupportedFeature`. Full RegExp conformance is not claimed. Legacy wrappers also retain behaviors of the backend's byte facade and their error fallbacks; use `CompiledRegex` for UTF-16 semantics and explicit errors.
 
-**Dependency Architecture:**
-- z-string depends on zregex (one-way dependency)
-- No circular dependencies
-- Clean separation of concerns
+Malformed UTF-8 that is not WTF-8 is outside the ECMA-262 string domain. The historical API retains its byte fallbacks; `PreparedSubject` rejects such input. `toWellFormed` repairs isolated surrogates but preserves these historical malformed bytes: it is not a validator for arbitrary binary files.
 
-## 🙏 Acknowledgments
+## Validation and documentation
 
-- ECMAScript 262 specification
-- Zig community
-- All contributors
+Latest local verification with **Zig 0.17.0 and zregex 0.9.1**: **417/417 tests** pass in Debug and ReleaseSafe; all six repository examples and tests run from the packaged contents also pass. All **75 complete programs in this README** also compile and run with Zig 0.17.0.
 
----
+The detailed reports linked below are in Spanish.
 
-**Note:** For questions or discussions about the project architecture, please open an issue.
+- [Compatibility matrix and scope percentages](COMPATIBILIDAD_ECMA262_STRING.md).
+- [Unicode data and regeneration](UNICODE.md).
+- 55 assertions adapted from eight official Test262 sources pinned by commit, with originals, hashes, and license preserved. These do not execute portions that require a JavaScript object runtime.
+- 9,216 deterministic differential cases against Node and the official Unicode normalization corpus: 20,034 records, four forms, and five inputs per record.
+- Simple and full case mappings tested against UnicodeData/SpecialCasing; allocation failures and frozen public API signatures are also checked.
+
+These datasets do not constitute a complete Test262 run or certify universal conformance. Tests run without Node or Python; those tools are only needed to regenerate the artifacts.
+
+## Licenses
+
+The code uses [MIT](LICENSE). Unicode tables and corpora are covered by [Unicode License v3](src/unicode/LICENSE.txt); their sources and hashes are recorded in `src/unicode/SOURCES.txt`.
+
+The selected Test262 sources and adaptations retain [Ecma International's BSD license](tests/spec/data/test262/LICENSE).

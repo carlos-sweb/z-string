@@ -12,10 +12,14 @@ test {
     _ = @import("case_utility_spec.zig");
     _ = @import("regex_spec.zig");
     _ = @import("ecmascript_compliance.zig");
+    _ = @import("improvements_spec.zig");
+    _ = @import("api_compatibility.zig");
+    _ = @import("differential.zig");
+    _ = @import("unicode_conformance.zig");
 }
 
 test "spec - String.length property" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.length
+    // https://tc39.es/ecma262/#sec-string.prototype.length
     //
     // The length property returns the number of UTF-16 code units
 

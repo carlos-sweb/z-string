@@ -1,0 +1,240 @@
+{
+  "standard": "ECMA-262 String",
+  "profile": "typed inputs, UTF-8/WTF-8, fixed root locale; excludes ECMA-402, Annex B, runtime object/coercion mechanics",
+  "operations": [
+    {
+      "operation": "length",
+      "api": "ZString.lengthConst",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "String.fromCharCode",
+      "api": "ZString.fromCharCodeEcma",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "String.fromCodePoint",
+      "api": "ZString.fromCodePointEcma",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "String.raw",
+      "api": "ZString.raw",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "at",
+      "api": "ZString.at",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "charAt",
+      "api": "ZString.charAt",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "charCodeAt",
+      "api": "ZString.charCodeAt",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "codePointAt",
+      "api": "ZString.codePointAt",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "concat",
+      "api": "ZString.concat",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "endsWith",
+      "api": "ZString.endsWith",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "includes",
+      "api": "ZString.includes",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "indexOf",
+      "api": "ZString.indexOf",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "isWellFormed",
+      "api": "ZString.isWellFormed",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "lastIndexOf",
+      "api": "ZString.lastIndexOf",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "localeCompare",
+      "api": "ZString.localeCompare",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "match",
+      "api": "CompiledRegex.match",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "matchAll",
+      "api": "CompiledRegex.matchAll",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "normalize",
+      "api": "ZString.normalizeStrict",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "padEnd",
+      "api": "ZString.padEnd",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "padStart",
+      "api": "ZString.padStart",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "repeat",
+      "api": "ZString.repeat",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "replace",
+      "api": "ZString.replaceLiteral / CompiledRegex.replace",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "replaceAll",
+      "api": "ZString.replaceAllLiteral / CompiledRegex.replaceAll",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "search",
+      "api": "CompiledRegex.search",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "slice",
+      "api": "ZString.slice",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "split",
+      "api": "ZString.split / CompiledRegex.split",
+      "available": true,
+      "status": "partial_regex"
+    },
+    {
+      "operation": "startsWith",
+      "api": "ZString.startsWith",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "substring",
+      "api": "ZString.substring",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toLocaleLowerCase",
+      "api": "ZString.toLocaleLowerCase",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toLocaleUpperCase",
+      "api": "ZString.toLocaleUpperCase",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toLowerCase",
+      "api": "ZString.toLowerCase",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toString",
+      "api": "ZString.toStringAlloc",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toUpperCase",
+      "api": "ZString.toUpperCase",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "toWellFormed",
+      "api": "ZString.toWellFormed",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "trim",
+      "api": "ZString.trim",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "trimEnd",
+      "api": "ZString.trimEnd",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "trimStart",
+      "api": "ZString.trimStart",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "valueOf",
+      "api": "ZString.valueOfAlloc",
+      "available": true,
+      "status": "verified_profile"
+    },
+    {
+      "operation": "iterator",
+      "api": "ZString.iterator",
+      "available": true,
+      "status": "verified_profile"
+    }
+  ]
+}

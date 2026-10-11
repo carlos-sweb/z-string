@@ -3,7 +3,7 @@ const zstring = @import("zstring");
 
 // ============================================================================
 // slice() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.slice
+// https://tc39.es/ecma262/#sec-string.prototype.slice
 // ============================================================================
 
 test "spec - slice basic functionality" {
@@ -99,7 +99,7 @@ test "spec - slice with emoji (UTF-16 indices)" {
 
 // ============================================================================
 // substring() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.substring
+// https://tc39.es/ecma262/#sec-string.prototype.substring
 // ============================================================================
 
 test "spec - substring basic functionality" {
@@ -190,7 +190,7 @@ test "spec - substring vs slice key differences" {
 
 // ============================================================================
 // concat() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.concat
+// https://tc39.es/ecma262/#sec-string.prototype.concat
 // ============================================================================
 
 test "spec - concat basic functionality" {
@@ -264,7 +264,7 @@ test "spec - concat does not modify original" {
 
 // ============================================================================
 // repeat() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.repeat
+// https://tc39.es/ecma262/#sec-string.prototype.repeat
 // ============================================================================
 
 test "spec - repeat basic functionality" {

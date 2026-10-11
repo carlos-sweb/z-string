@@ -1,8 +1,9 @@
+const units = @import("../core/units.zig");
 const std = @import("std");
 const utf16 = @import("../core/utf16.zig");
 
 /// String.prototype.indexOf(searchString, position)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.indexof
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.indexof
 ///
 /// Returns the index of the first occurrence of searchString within this string,
 /// starting at position. Returns -1 if not found.
@@ -15,46 +16,32 @@ const utf16 = @import("../core/utf16.zig");
 ///   indexOf("hello world", "x", 0) -> -1
 ///   indexOf("😀😃", "😃", 0) -> 2 (emoji is 2 UTF-16 code units)
 pub fn indexOf(str: []const u8, search: []const u8, position: ?isize) isize {
-    // Handle empty search string - spec says return position (or 0)
-    if (search.len == 0) {
-        if (position) |pos| {
-            if (pos < 0) return 0;
-            const len = utf16.lengthUtf16(str);
-            return @min(pos, @as(isize, @intCast(len)));
-        }
-        return 0;
+    const ascii = units.isAscii(str);
+    const len = if (ascii) str.len else utf16.lengthUtf16(str);
+    const start: usize = if (position) |p| @intCast(@max(0, @min(p, @as(isize, @intCast(len))))) else 0;
+    if (search.len == 0) return @intCast(start);
+    if (ascii) {
+        return if (std.mem.indexOfPos(u8, str, start, search)) |i| @intCast(i) else -1;
     }
-
-    const len = utf16.lengthUtf16(str);
-
-    // Normalize position
-    var start_pos: usize = 0;
-    if (position) |pos| {
-        if (pos < 0) {
-            start_pos = 0;
-        } else if (pos >= @as(isize, @intCast(len))) {
-            return -1; // Start position beyond string length
-        } else {
-            start_pos = @intCast(pos);
-        }
+    if (std.unicode.utf8ValidateSlice(str) and std.unicode.utf8ValidateSlice(search)) {
+        const boundary = utf16.utf16IndexToBytePos(str, start) catch return -1;
+        // A complete code point cannot start at the low half of another pair.
+        const byte_start = boundary.byte_index + (if (boundary.is_low_surrogate) @as(usize, 4) else 0);
+        const found = std.mem.indexOfPos(u8, str, byte_start, search) orelse return -1;
+        return @intCast(utf16.byteIndexToUtf16(str, found) catch return -1);
     }
-
-    // Convert UTF-16 position to byte index
-    const start_byte = utf16.utf16IndexToByte(str, start_pos) catch return -1;
-
-    // Search for the substring using byte indices
-    if (std.mem.indexOf(u8, str[start_byte..], search)) |byte_offset| {
-        // Found! Convert byte offset back to UTF-16 index
-        const absolute_byte = start_byte + byte_offset;
-        const utf16_index = utf16.byteIndexToUtf16(str, absolute_byte) catch return -1;
-        return @intCast(utf16_index);
+    var cursor: units.Cursor = .{ .data = str };
+    cursor.skip(start);
+    var i = start;
+    while (i < len) : (i += 1) {
+        if (matches(cursor, search)) return @intCast(i);
+        _ = cursor.next();
     }
-
-    return -1; // Not found
+    return -1;
 }
 
 /// String.prototype.lastIndexOf(searchString, position)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.lastindexof
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.lastindexof
 ///
 /// Returns the index of the last occurrence of searchString within this string,
 /// searching backwards from position. Returns -1 if not found.
@@ -64,59 +51,31 @@ pub fn indexOf(str: []const u8, search: []const u8, position: ?isize) isize {
 ///   lastIndexOf("hello world hello", "hello", 10) -> 0
 ///   lastIndexOf("hello world hello", "x", null) -> -1
 pub fn lastIndexOf(str: []const u8, search: []const u8, position: ?isize) isize {
-    const len = utf16.lengthUtf16(str);
-
-    // Handle empty search string
-    if (search.len == 0) {
-        if (position) |pos| {
-            if (pos < 0) return 0;
-            return @min(pos, @as(isize, @intCast(len)));
+    const ascii = units.isAscii(str);
+    const len = if (ascii) str.len else utf16.lengthUtf16(str);
+    const stop: usize = if (position) |p| @intCast(@max(0, @min(p, @as(isize, @intCast(len))))) else len;
+    if (search.len == 0) return @intCast(stop);
+    var found: isize = -1;
+    if (ascii) {
+        var pos: usize = 0;
+        while (std.mem.indexOfPos(u8, str, pos, search)) |i| {
+            if (i > stop) break;
+            found = @intCast(i);
+            pos = i + 1;
         }
-        return @intCast(len);
+        return found;
     }
-
-    if (len == 0) return -1;
-
-    // Normalize position (default is end of string)
-    var search_pos: usize = len;
-    if (position) |pos| {
-        if (pos < 0) {
-            return -1;
-        } else if (pos < @as(isize, @intCast(len))) {
-            search_pos = @intCast(pos);
-        }
+    var cursor: units.Cursor = .{ .data = str };
+    var i: usize = 0;
+    while (i <= stop and i < len) : (i += 1) {
+        if (matches(cursor, search)) found = @intCast(i);
+        _ = cursor.next();
     }
-
-    // Search from the end backwards
-    // We'll iterate through all occurrences and keep the last one before position
-    var last_found: isize = -1;
-    var current_byte: usize = 0;
-
-    while (current_byte < str.len) {
-        if (std.mem.indexOf(u8, str[current_byte..], search)) |byte_offset| {
-            const absolute_byte = current_byte + byte_offset;
-            const utf16_index = utf16.byteIndexToUtf16(str, absolute_byte) catch break;
-
-            // Check if this occurrence is within our search range
-            if (utf16_index <= search_pos) {
-                last_found = @intCast(utf16_index);
-                // Continue searching after this occurrence
-                current_byte = absolute_byte + 1;
-            } else {
-                // Beyond our search range, stop
-                break;
-            }
-        } else {
-            // No more occurrences
-            break;
-        }
-    }
-
-    return last_found;
+    return found;
 }
 
 /// String.prototype.includes(searchString, position)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.includes
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.includes
 ///
 /// Determines whether searchString appears within this string,
 /// starting the search at position.
@@ -130,7 +89,7 @@ pub fn includes(str: []const u8, search: []const u8, position: ?isize) bool {
 }
 
 /// String.prototype.startsWith(searchString, position)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.startswith
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.startswith
 ///
 /// Determines whether this string begins with searchString,
 /// optionally starting at position.
@@ -140,34 +99,17 @@ pub fn includes(str: []const u8, search: []const u8, position: ?isize) bool {
 ///   startsWith("hello world", "world", 6) -> true
 ///   startsWith("hello world", "hello", 1) -> false
 pub fn startsWith(str: []const u8, search: []const u8, position: ?isize) bool {
-    const len = utf16.lengthUtf16(str);
-
-    // Normalize position
-    var start_pos: usize = 0;
-    if (position) |pos| {
-        if (pos < 0) {
-            start_pos = 0;
-        } else if (pos >= @as(isize, @intCast(len))) {
-            // Position at or beyond end
-            return search.len == 0;
-        } else {
-            start_pos = @intCast(pos);
-        }
-    }
-
-    // Convert UTF-16 position to byte index
-    const start_byte = utf16.utf16IndexToByte(str, start_pos) catch return false;
-
-    // Check if the substring at start_byte matches search
-    if (start_byte + search.len > str.len) {
-        return false; // Not enough bytes remaining
-    }
-
-    return std.mem.startsWith(u8, str[start_byte..], search);
+    const ascii = units.isAscii(str);
+    const len = if (ascii) str.len else utf16.lengthUtf16(str);
+    const start: usize = if (position) |p| @intCast(@max(0, @min(p, @as(isize, @intCast(len))))) else 0;
+    if (ascii) return std.mem.startsWith(u8, str[start..], search);
+    var cursor: units.Cursor = .{ .data = str };
+    cursor.skip(start);
+    return matches(cursor, search);
 }
 
 /// String.prototype.endsWith(searchString, endPosition)
-/// Spec: https://tc39.es/ecma262/2025/#sec-string.prototype.endswith
+/// Spec: https://tc39.es/ecma262/#sec-string.prototype.endswith
 ///
 /// Determines whether this string ends with searchString,
 /// treating the string as if it were only endPosition characters long.
@@ -177,45 +119,15 @@ pub fn startsWith(str: []const u8, search: []const u8, position: ?isize) bool {
 ///   endsWith("hello world", "hello", 5) -> true
 ///   endsWith("hello world", "world", 5) -> false
 pub fn endsWith(str: []const u8, search: []const u8, endPosition: ?isize) bool {
-    // Handle empty search string - always returns true
-    if (search.len == 0) {
-        return true;
-    }
-
-    const len = utf16.lengthUtf16(str);
-
-    // Normalize end position (default is full string length)
-    var end_pos: usize = len;
-    if (endPosition) |pos| {
-        if (pos < 0) {
-            end_pos = 0;
-        } else if (pos < @as(isize, @intCast(len))) {
-            end_pos = @intCast(pos);
-        }
-    }
-
-    // Get the length of the search string in UTF-16 code units
-    const search_len_utf16 = utf16.lengthUtf16(search);
-
-    // Check if search string is longer than the position we're checking
-    if (search_len_utf16 > end_pos) {
-        return false;
-    }
-
-    // Calculate the starting position for comparison (in UTF-16)
-    const compare_start_utf16 = end_pos - search_len_utf16;
-
-    // Convert to byte indices
-    const compare_start_byte = utf16.utf16IndexToByte(str, compare_start_utf16) catch return false;
-    const end_byte = utf16.utf16IndexToByte(str, end_pos) catch return false;
-
-    // Check if the slice matches
-    if (compare_start_byte >= str.len or end_byte > str.len) {
-        return false;
-    }
-
-    const slice_to_check = str[compare_start_byte..end_byte];
-    return std.mem.eql(u8, slice_to_check, search);
+    const ascii = units.isAscii(str);
+    const len = if (ascii) str.len else utf16.lengthUtf16(str);
+    const end: usize = if (endPosition) |p| @intCast(@max(0, @min(p, @as(isize, @intCast(len))))) else len;
+    const n = if (ascii) search.len else utf16.lengthUtf16(search);
+    if (n > end) return false;
+    if (ascii) return std.mem.endsWith(u8, str[0..end], search);
+    var cursor: units.Cursor = .{ .data = str };
+    cursor.skip(end - n);
+    return matches(cursor, search);
 }
 
 // ============================================================================
@@ -366,3 +278,5 @@ test "endsWith - exact length" {
     try std.testing.expect(endsWith("hello", "hello", null));
     try std.testing.expect(endsWith("hello", "hello", 5));
 }
+
+const matches = units.matches;

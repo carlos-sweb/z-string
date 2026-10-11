@@ -1,0 +1,6 @@
+Reference runtime: v26.5.0
+Seed: 0x262
+Cases: 9216
+SHA-256: fb1ac71fe48c0df4c4a216f7e87c911b64ebc05570c4973c16eac54013a4ef18
+Generator: tools/generate_string_oracle.mjs
+Not a Test262 execution. Unicode-sensitive fixtures use characters predating Unicode 17.

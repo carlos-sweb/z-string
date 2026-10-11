@@ -104,28 +104,29 @@ pub fn mergeSurrogateBoundary(left: []const u8, right: []const u8) ?[4]u8 {
 /// ownership for callers than a maybe-borrowed result, and this only
 /// runs at output boundaries, not on any hot path.
 pub fn sanitizeWtf8ToUtf8(allocator: std.mem.Allocator, str: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    var i: usize = 0;
-    while (i < str.len) {
-        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch {
-            try out.append(allocator, str[i]);
-            i += 1;
-            continue;
-        };
-        if (i + cp_len > str.len) {
-            try out.appendSlice(allocator, str[i..]);
-            break;
-        }
-        if (cp_len == 3 and decodeSurrogateWtf8(str[i .. i + 3]) != null) {
-            try out.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
-            i += 3;
+    const units = @import("units.zig");
+    if (std.unicode.utf8ValidateSlice(str)) return allocator.dupe(u8, str);
+    var out: units.Builder = .{ .allocator = allocator };
+    defer out.deinit();
+    var cursor: units.Cursor = .{ .data = str };
+    while (cursor.next()) |unit| {
+        if (!unit.valid) {
+            try out.appendUnit(unit); // Preserve the legacy malformed-byte fallback.
             continue;
         }
-        try out.appendSlice(allocator, str[i .. i + cp_len]);
-        i += cp_len;
+        var cp: u21 = unit.value;
+        if (cp >= 0xd800 and cp <= 0xdbff) {
+            var peek = cursor;
+            if (peek.next()) |low| {
+                if (low.valid and low.value >= 0xdc00 and low.value <= 0xdfff) {
+                    cp = 0x10000 + ((cp - 0xd800) << 10) + low.value - 0xdc00;
+                    cursor = peek;
+                }
+            }
+        }
+        try out.append(if (cp >= 0xd800 and cp <= 0xdfff) 0xfffd else cp);
     }
-    return out.toOwnedSlice(allocator);
+    return out.finish();
 }
 
 /// Returns the length of a UTF-8 string in UTF-16 code units

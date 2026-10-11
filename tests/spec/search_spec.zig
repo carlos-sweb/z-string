@@ -3,7 +3,7 @@ const zstring = @import("zstring");
 
 // ============================================================================
 // indexOf() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.indexof
+// https://tc39.es/ecma262/#sec-string.prototype.indexof
 // ============================================================================
 
 test "spec - indexOf basic search" {
@@ -78,7 +78,7 @@ test "spec - indexOf with mixed content" {
 
 // ============================================================================
 // lastIndexOf() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.lastindexof
+// https://tc39.es/ecma262/#sec-string.prototype.lastindexof
 // ============================================================================
 
 test "spec - lastIndexOf basic search" {
@@ -126,7 +126,7 @@ test "spec - lastIndexOf empty string" {
 
 // ============================================================================
 // includes() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.includes
+// https://tc39.es/ecma262/#sec-string.prototype.includes
 // ============================================================================
 
 test "spec - includes basic search" {
@@ -181,7 +181,7 @@ test "spec - includes case sensitive" {
 
 // ============================================================================
 // startsWith() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.startswith
+// https://tc39.es/ecma262/#sec-string.prototype.startswith
 // ============================================================================
 
 test "spec - startsWith basic functionality" {
@@ -245,7 +245,7 @@ test "spec - startsWith exact match" {
 
 // ============================================================================
 // endsWith() Spec Compliance Tests
-// https://tc39.es/ecma262/2025/#sec-string.prototype.endswith
+// https://tc39.es/ecma262/#sec-string.prototype.endswith
 // ============================================================================
 
 test "spec - endsWith basic functionality" {

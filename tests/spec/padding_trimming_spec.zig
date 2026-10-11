@@ -6,7 +6,7 @@ const zstring = @import("zstring");
 // ============================================================================
 
 test "spec - padStart: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.padstart
+    // https://tc39.es/ecma262/#sec-string.prototype.padstart
     //
     // JavaScript behavior:
     // "5".padStart(3, "0") -> "005"
@@ -99,7 +99,7 @@ test "spec - padStart: UTF-16 length calculation" {
 }
 
 test "spec - padEnd: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.padend
+    // https://tc39.es/ecma262/#sec-string.prototype.padend
     //
     // JavaScript behavior:
     // "5".padEnd(3, "0") -> "500"
@@ -176,7 +176,7 @@ test "spec - padEnd: UTF-16 length calculation" {
 // ============================================================================
 
 test "spec - trim: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.trim
+    // https://tc39.es/ecma262/#sec-string.prototype.trim
     //
     // JavaScript behavior:
     // "  hello  ".trim() -> "hello"
@@ -283,7 +283,7 @@ test "spec - trim: ECMAScript whitespace characters" {
 }
 
 test "spec - trimStart: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.trimstart
+    // https://tc39.es/ecma262/#sec-string.prototype.trimstart
     //
     // JavaScript behavior:
     // "  hello  ".trimStart() -> "hello  "
@@ -317,7 +317,7 @@ test "spec - trimStart: all whitespace" {
 }
 
 test "spec - trimEnd: basic functionality" {
-    // https://tc39.es/ecma262/2025/#sec-string.prototype.trimend
+    // https://tc39.es/ecma262/#sec-string.prototype.trimend
     //
     // JavaScript behavior:
     // "  hello  ".trimEnd() -> "  hello"
